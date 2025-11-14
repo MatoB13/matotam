@@ -713,7 +713,7 @@ export default function Home() {
           [unit]: 1n,
         })
         .payToAddress(DEV_ADDRESS, {
-          lovelace: 100_000n,
+          lovelace: 1_000_000n, // 1 ADA dev fee
         })
         .complete();
 
@@ -996,23 +996,23 @@ export default function Home() {
         <div className="mt-4 border-t border-slate-800 pt-4 text-[11px] text-slate-400 space-y-2">
           <details className="rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-2">
             <summary className="cursor-pointer font-semibold text-slate-200 list-none">
-              How it works
+              Disclaimer
             </summary>
             <div className="mt-2 space-y-1">
-              <p>① You write a short message (up to 256 characters).</p>
               <p>
-                ② Your wallet signs a transaction that mints a tiny NFT
-                containing your message as text plus a small SVG bubble image.
+                Messages are stored permanently on the Cardano blockchain —
+                please avoid sharing sensitive information.
               </p>
               <p>
-                ③ The NFT is sent to the recipient&apos;s Cardano address (or
-                ADA Handle) and appears in their wallet / on pool.pm.
+                The developer fee corresponds to Cardano’s minimum UTxO requirement,
+                which is approximately 1 ADA.
               </p>
               <p>
-                ④ Each message NFT holds the minimum ADA. The recipient can burn
-                the message in the Inbox (if it was minted from their wallet
-                policy) to reclaim most of that ADA.
+                The remaining cost covers Cardano network and minting fees. Most of the ADA
+                locked in a message NFT can be reclaimed later by burning it from either
+                the sender’s or the recipient’s wallet.
               </p>
+
             </div>
           </details>
 
