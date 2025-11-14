@@ -14,13 +14,13 @@ const WALLET_LABELS: Record<string, string> = {
 const BLOCKFROST_API = "https://cardano-mainnet.blockfrost.io/api/v0";
 const BLOCKFROST_KEY = "mainnetjK2y8L83PWohEHDWRNgO5UjeMG3A3kJe";
 
-// ADA Handle mainnet policy
+// ADA Handle mainnet policy (OG collection)
 const ADA_HANDLE_POLICY_ID =
   "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a";
 
-// MAINNET dev fee address (0.1 ADA)
+// MAINNET matotam dev / service address (0.1 ADA fee, môže burnovať)
 const DEV_ADDRESS =
-  "addr1q8d5hu0c0x9vyk1qdshkx6t0mw3t9tv46c6g4vwqecduqq2e9wy54x7ffcdly855h96s805k9e3z4pgpmeyu5tjfudfsksgfnq";
+  "addr1q8d5hu0c0x9vyklqdshkx6t0mw3t9tv46c6g4wvqecduqq2e9wy54x7ffcdly855h96s805k9e3z4pgpmeyu5tjfudfsksgfnq";
 
 type MatotamMessage = {
   unit: string;
@@ -34,11 +34,195 @@ type MatotamMessage = {
   imageDataUri?: string;
 };
 
+// ---------- helpers -------------------------------------------------
+
+function splitIntoSegments(str: string, size = 64): string[] {
+  const segments: string[] = [];
+  for (let i = 0; i < str.length; i += size) {
+    segments.push(str.slice(i, i + size));
+  }
+  return segments;
+}
+
+function looksLikeAdaHandle(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (v.startsWith("$")) return true;
+  if (!v.startsWith("addr") && !v.startsWith("stake") && !v.includes(" ")) {
+    return true;
+  }
+  return false;
+}
+
+// ADA Handle resolver – handle.me + Blockfrost + CIP-25 fallback
+async function resolveAdaHandle(handle: string): Promise<string | null> {
+  try {
+    const raw = handle.trim();
+    const base = raw.startsWith("$") ? raw.slice(1) : raw;
+    const name = base.trim();
+    if (!name) return null;
+
+    //
+    // 1) Pokus cez oficiálne ADA Handle API (api.handle.me)
+    //
+    try {
+      const apiResp = await fetch(
+        `https://api.handle.me/handles/${encodeURIComponent(name)}`
+      );
+
+      if (apiResp.ok) {
+        const data: any = await apiResp.json();
+        console.log("handle.me response", data);
+
+        // holder = stake adresa (stake1...)
+        const stake = data?.holder;
+        if (typeof stake === "string" && stake.startsWith("stake")) {
+          const bfResp = await fetch(
+            `${BLOCKFROST_API}/accounts/${stake}/addresses`,
+            { headers: { project_id: BLOCKFROST_KEY } }
+          );
+
+          if (bfResp.ok) {
+            const addrs: any[] = await bfResp.json();
+            const baseAddr = addrs.find(
+              (a) =>
+                a &&
+                typeof a.address === "string" &&
+                a.address.startsWith("addr")
+            );
+            if (baseAddr?.address) {
+              return baseAddr.address as string;
+            }
+          } else {
+            console.warn(
+              "Blockfrost account lookup failed for handle holder, status:",
+              bfResp.status
+            );
+          }
+        }
+      } else {
+        console.warn("handle.me status", apiResp.status);
+      }
+    } catch (err) {
+      console.warn("handle.me resolve error", err);
+    }
+
+    //
+    // 2) Fallback – starý CIP-25 resolver cez Blockfrost
+    //
+    const { toHex } = await import("lucid-cardano");
+
+    const variants = Array.from(
+      new Set([
+        name,
+        name[0]?.toUpperCase() + name.slice(1),
+        name.toUpperCase(),
+      ])
+    ).filter(Boolean) as string[];
+
+    for (const variant of variants) {
+      const bytes = new TextEncoder().encode(variant);
+      const assetNameHex = toHex(bytes);
+      const unit = ADA_HANDLE_POLICY_ID + assetNameHex;
+
+      const resp = await fetch(`${BLOCKFROST_API}/assets/${unit}/addresses`, {
+        headers: { project_id: BLOCKFROST_KEY },
+      });
+
+      if (!resp.ok) continue;
+      const data: any = await resp.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      const addr = data[0]?.address;
+      if (typeof addr === "string" && addr.startsWith("addr")) {
+        return addr;
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error("resolveAdaHandle error", err);
+    return null;
+  }
+}
+
+// ----- helpers pre SVG bubble ---------------------------------------
+
+function wrapMessageForBubble(
+  text: string,
+  maxLineLength = 24,
+  maxLines = 5
+): string[] {
+  const trimmed = text.slice(0, 256).trim();
+  if (!trimmed) return [];
+
+  const words = trimmed.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? current + " " + word : word;
+    if (candidate.length <= maxLineLength) {
+      current = candidate;
+    } else {
+      if (current) {
+        lines.push(current);
+        if (lines.length >= maxLines) return lines;
+      }
+      current = word.length > maxLineLength ? word.slice(0, maxLineLength) : word;
+    }
+    if (lines.length >= maxLines) break;
+  }
+
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines;
+}
+
+function buildBubbleSvg(lines: string[]): string {
+  const safeLines = lines.length > 0 ? lines : ["(empty message)"];
+  const lineHeight = 28;
+  const startY = 120;
+
+  const textElements = safeLines
+    .map((line, idx) => {
+      const y = startY + idx * lineHeight;
+      const escaped = line
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return `<text x="300" y="${y}" text-anchor="middle"
+          fill="#e5e7eb" font-size="22"
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+          ${escaped}
+        </text>`;
+    })
+    .join("");
+
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
+  <rect x="40" y="40" width="520" height="240" rx="40" ry="40"
+        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
+  <path d="M 260 280 L 275 320 L 315 280"
+        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
+  ${textElements}
+</svg>`.trim();
+}
+
+function svgToDataUri(svg: string): string {
+  const encoded = encodeURIComponent(svg)
+    .replace(/'/g, "%27")
+    .replace(/"/g, "%22");
+  return `data:image/svg+xml,${encoded}`;
+}
+
+// ---------- COMPONENT ------------------------------------------------
+
 export default function Home() {
   const [message, setMessage] = useState("");
   const [toAddress, setToAddress] = useState("");
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [stakeAddress, setStakeAddress] = useState<string | null>(null);
   const [availableWallets, setAvailableWallets] = useState<string[]>([]);
   const [showWalletPicker, setShowWalletPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,130 +233,6 @@ export default function Home() {
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxMessages, setInboxMessages] = useState<MatotamMessage[]>([]);
   const [burningUnit, setBurningUnit] = useState<string | null>(null);
-
-  // ---------- helpers -------------------------------------------------
-
-  function splitMessageIntoSegments(text: string, segmentSize = 64): string[] {
-    const trimmed = text.slice(0, 256);
-    const segments: string[] = [];
-    for (let i = 0; i < trimmed.length; i += segmentSize) {
-      segments.push(trimmed.slice(i, i + segmentSize));
-    }
-    return segments;
-  }
-
-  function wrapMessageForBubble(
-    text: string,
-    maxLineLength = 24,
-    maxLines = 5
-  ): string[] {
-    const trimmed = text.slice(0, 256).trim();
-    if (!trimmed) return [];
-
-    const words = trimmed.split(/\s+/);
-    const lines: string[] = [];
-    let current = "";
-
-    for (const word of words) {
-      const candidate = current ? current + " " + word : word;
-      if (candidate.length <= maxLineLength) {
-        current = candidate;
-      } else {
-        if (current) {
-          lines.push(current);
-          if (lines.length >= maxLines) return lines;
-        }
-        current =
-          word.length > maxLineLength ? word.slice(0, maxLineLength) : word;
-      }
-      if (lines.length >= maxLines) break;
-    }
-
-    if (current && lines.length < maxLines) lines.push(current);
-    return lines;
-  }
-
-  function buildBubbleSvg(lines: string[]): string {
-    const safeLines = lines.length > 0 ? lines : ["(empty message)"];
-    const lineHeight = 28;
-    const startY = 120;
-
-    const textElements = safeLines
-      .map((line, idx) => {
-        const y = startY + idx * lineHeight;
-        const escaped = line
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-        return `<text x="300" y="${y}" text-anchor="middle"
-          fill="#e5e7eb" font-size="22"
-          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-          ${escaped}
-        </text>`;
-      })
-      .join("");
-
-    return `
-<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
-  <rect x="40" y="40" width="520" height="240" rx="40" ry="40"
-        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
-  <path d="M 260 280 L 275 320 L 315 280"
-        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
-  ${textElements}
-</svg>`.trim();
-  }
-
-  function svgToDataUri(svg: string): string {
-    const encoded = encodeURIComponent(svg)
-      .replace(/'/g, "%27")
-      .replace(/"/g, "%22");
-    return `data:image/svg+xml,${encoded}`;
-  }
-
-  function chunkString(str: string, size = 64): string[] {
-    const chunks: string[] = [];
-    for (let i = 0; i < str.length; i += size) {
-      chunks.push(str.slice(i, i + size));
-    }
-    return chunks;
-  }
-
-  function looksLikeAdaHandle(value: string): boolean {
-    const v = value.trim();
-    if (!v) return false;
-    if (v.startsWith("$")) return true;
-    if (!v.startsWith("addr") && !v.startsWith("stake") && !v.includes(" ")) {
-      return true;
-    }
-    return false;
-  }
-
-  async function resolveAdaHandle(handle: string): Promise<string | null> {
-    try {
-      const raw = handle.trim();
-      const name = raw.startsWith("$") ? raw.slice(1) : raw;
-      if (!name) return null;
-
-      const { toHex } = await import("lucid-cardano");
-      const bytes = new TextEncoder().encode(name);
-      const assetNameHex = toHex(bytes);
-      const unit = ADA_HANDLE_POLICY_ID + assetNameHex;
-
-      const resp = await fetch(`${BLOCKFROST_API}/assets/${unit}/addresses`, {
-        headers: { project_id: BLOCKFROST_KEY },
-      });
-
-      if (!resp.ok) return null;
-      const data: any = await resp.json();
-      if (!Array.isArray(data) || data.length === 0) return null;
-
-      const addr = data[0]?.address;
-      return typeof addr === "string" ? addr : null;
-    } catch (err) {
-      console.error("resolveAdaHandle error", err);
-      return null;
-    }
-  }
 
   // ---------- wallet connect / disconnect -----------------------------
 
@@ -215,7 +275,6 @@ export default function Home() {
   async function connectWithWallet(id: string) {
     try {
       setError(null);
-      setTxHash(null);
 
       if (!BLOCKFROST_KEY) {
         setError("Blockfrost key is not configured.");
@@ -242,7 +301,9 @@ export default function Home() {
       (window as any).lucid = lucid;
 
       const addr = await lucid.wallet.address();
+      const stake = await lucid.wallet.rewardAddress();
       setWalletAddress(addr);
+      setStakeAddress(stake ?? null);
       setWalletConnected(true);
       setShowWalletPicker(false);
     } catch (e) {
@@ -257,6 +318,7 @@ export default function Home() {
 
     setWalletConnected(false);
     setWalletAddress(null);
+    setStakeAddress(null);
     setTxHash(null);
     setError(null);
     setShowWalletPicker(false);
@@ -267,7 +329,7 @@ export default function Home() {
 
   async function loadInbox() {
     try {
-      if (!walletConnected || !walletAddress) {
+      if (!walletConnected) {
         setError("Connect your wallet to see your inbox.");
         return;
       }
@@ -280,28 +342,52 @@ export default function Home() {
       setInboxLoading(true);
       setInboxMessages([]);
 
-      const assetsResp = await fetch(
-        `${BLOCKFROST_API}/addresses/${walletAddress}/assets`,
-        { headers: { project_id: BLOCKFROST_KEY } }
-      );
+      const headers = { project_id: BLOCKFROST_KEY };
 
-      if (assetsResp.status === 404) {
-        setInboxMessages([]);
-        setInboxLoading(false);
-        return;
+      let assets: any[] = [];
+
+      // 1) Primárne skúsime celý účet cez stake adresu
+      if (stakeAddress) {
+        const resp = await fetch(
+          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`,
+          { headers }
+        );
+
+        if (resp.ok) {
+          assets = await resp.json();
+        } else {
+          console.warn(
+            "Failed to load account assets, status:",
+            resp.status
+          );
+        }
       }
 
-      if (!assetsResp.ok) {
-        throw new Error(`Failed to load assets: ${assetsResp.status}`);
+      // 2) Fallback – ak zlyhá accounts endpoint, skúsime aspoň jednu adresu
+      if (assets.length === 0 && walletAddress) {
+        const addrResp = await fetch(
+          `${BLOCKFROST_API}/addresses/${walletAddress}/assets`,
+          { headers }
+        );
+        if (addrResp.ok) {
+          assets = await addrResp.json();
+        } else {
+          console.warn(
+            "Failed to load address assets, status:",
+            addrResp.status
+          );
+        }
       }
 
-      const assets: any[] = await assetsResp.json();
       const messages: MatotamMessage[] = [];
 
-      for (const asset of assets.slice(0, 50)) {
+      // 3) Pre každý asset stiahneme detail /assets/{unit}
+      for (const asset of assets) {
         const unit: string = asset.unit;
+        if (!unit) continue;
+
         const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
-          headers: { project_id: BLOCKFROST_KEY },
+          headers,
         });
         if (!assetResp.ok) continue;
 
@@ -311,39 +397,43 @@ export default function Home() {
 
         const name = String(meta.name ?? "");
         const desc = String(meta.description ?? "");
+        const source = typeof meta.source === "string" ? meta.source : "";
 
         const isMatotam =
-          name.toLowerCase().startsWith("matotam") ||
-          desc.toLowerCase().includes("matotam.io");
+          source === "https://matotam.io" ||
+          name.toLowerCase().includes("matotam") ||
+          desc.toLowerCase().includes("matotam");
+
         if (!isMatotam) continue;
 
-        const segments = Array.isArray(meta.messageSegments)
-          ? meta.messageSegments.map((s: any) => String(s))
-          : [];
-        const fullText =
-          segments.length > 0 ? segments.join("") : String(meta.message ?? "");
+        let fullText = "";
+        if (Array.isArray(meta.messageSegments)) {
+          fullText = meta.messageSegments.map((s: any) => String(s)).join("");
+        } else if (typeof meta.message === "string") {
+          fullText = meta.message;
+        } else {
+          fullText = desc || name || "";
+        }
 
         const preview =
-          fullText.length > 80
-            ? fullText.slice(0, 77) + "..."
-            : fullText || name;
+          fullText.length > 80 ? fullText.slice(0, 77) + "..." : fullText || name;
 
         const createdAt = meta.createdAt ? String(meta.createdAt) : undefined;
 
         let fromAddress: string | undefined;
         if (Array.isArray(meta.fromAddressSegments)) {
-          const fromSegs = meta.fromAddressSegments.map((s: any) =>
-            String(s)
-          );
-          fromAddress = fromSegs.join("");
-        } else if (typeof meta.from === "string") {
-          fromAddress = meta.from;
+          fromAddress = (meta.fromAddressSegments as any[])
+            .map(String)
+            .join("");
+        } else if (typeof meta.fromShort === "string") {
+          fromAddress = meta.fromShort;
         }
 
         let imageDataUri: string | undefined;
         if (Array.isArray(meta.image)) {
-          const imgChunks = meta.image.map((s: any) => String(s));
-          if (imgChunks.length > 0) imageDataUri = imgChunks.join("");
+          imageDataUri = meta.image.map((s: any) => String(s)).join("");
+        } else if (typeof meta.image === "string") {
+          imageDataUri = meta.image;
         }
 
         messages.push({
@@ -368,7 +458,7 @@ export default function Home() {
     }
   }
 
-  // ---------- burn ----------------------------------------------------
+  // ---------- burn ---------------------------------------------------
 
   async function burnMessage(unit: string) {
     try {
@@ -388,14 +478,78 @@ export default function Home() {
         return;
       }
 
-      const senderAddr = await lucid.wallet.address();
-      const paymentCred = lucid.utils.paymentCredentialOf(senderAddr);
+      const myAddr = await lucid.wallet.address();
+      const myCred = lucid.utils.paymentCredentialOf(myAddr);
 
-      const policy = lucid.utils.nativeScriptFromJson({
-        type: "sig",
-        keyHash: paymentCred.hash,
-      });
-      const policyId = lucid.utils.mintingPolicyToId(policy);
+      let policy: any = null;
+      let policyId: string | null = null;
+
+      // Pokus: nová 3-sig policy (sender OR recipient OR matotam) z metadata
+      try {
+        const headers = { project_id: BLOCKFROST_KEY };
+        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+          headers,
+        });
+
+        if (assetResp.ok) {
+          const assetData: any = await assetResp.json();
+          const meta = assetData.onchain_metadata || {};
+
+          let fromAddrMeta: string | null = null;
+          let toAddrMeta: string | null = null;
+
+          if (Array.isArray(meta.fromAddressSegments)) {
+            fromAddrMeta = (meta.fromAddressSegments as any[])
+              .map(String)
+              .join("");
+          }
+          if (Array.isArray(meta.toAddressSegments)) {
+            toAddrMeta = (meta.toAddressSegments as any[])
+              .map(String)
+              .join("");
+          }
+
+          if (fromAddrMeta && toAddrMeta) {
+            const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
+            const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
+            const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+            // Only sender, original recipient, or matotam can burn
+            if (
+              myCred.hash !== fromCred.hash &&
+              myCred.hash !== toCred.hash &&
+              myCred.hash !== matotamCred.hash
+            ) {
+              setError(
+                "Only the sender, the original recipient, or matotam can burn this message."
+              );
+              setBurningUnit(null);
+              return;
+            }
+
+            const policyJson = {
+              type: "any",
+              scripts: [
+                { type: "sig", keyHash: fromCred.hash },
+                { type: "sig", keyHash: toCred.hash },
+                { type: "sig", keyHash: matotamCred.hash },
+              ],
+            };
+
+            policy = lucid.utils.nativeScriptFromJson(policyJson);
+            policyId = lucid.utils.mintingPolicyToId(policy);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to reconstruct 3-sig policy from metadata", e);
+      }
+
+      // Fallback: legacy single-sig policy (minter-only) pre staré testovacie NFT
+      if (!policy || !policyId) {
+        const policyJsonLegacy = { type: "sig", keyHash: myCred.hash };
+        policy = lucid.utils.nativeScriptFromJson(policyJsonLegacy);
+        policyId = lucid.utils.mintingPolicyToId(policy);
+      }
 
       if (!unit.startsWith(policyId)) {
         setError(
@@ -486,57 +640,74 @@ export default function Home() {
       const senderAddr = await lucid.wallet.address();
       const { toHex } = await import("lucid-cardano");
 
-      // minting policy based on sender's payment key
-      const paymentCred = lucid.utils.paymentCredentialOf(senderAddr);
-      const policy = lucid.utils.nativeScriptFromJson({
-        type: "sig",
-        keyHash: paymentCred.hash,
-      });
+      // 3-sig policy: sender OR recipient OR matotam môže mint/burn
+      const senderCred = lucid.utils.paymentCredentialOf(senderAddr);
+      const recipientCred = lucid.utils.paymentCredentialOf(recipientAddress);
+      const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+      const policyJson = {
+        type: "any",
+        scripts: [
+          { type: "sig", keyHash: senderCred.hash },
+          { type: "sig", keyHash: recipientCred.hash },
+          { type: "sig", keyHash: matotamCred.hash },
+        ],
+      };
+
+      const policy = lucid.utils.nativeScriptFromJson(policyJson);
       const policyId = lucid.utils.mintingPolicyToId(policy);
 
-      const shortMsg = message.trim().slice(0, 12) || "msg";
-      const assetName = `matotam-${shortMsg}`;
-      const assetNameBytes = new TextEncoder().encode(assetName);
-      const assetNameHex = toHex(assetNameBytes);
-      const unit = policyId + assetNameHex;
+      const safeMessage = message.trim().slice(0, 256);
+      const messageSegments = splitIntoSegments(safeMessage, 64);
 
-      const messageSegments = splitMessageIntoSegments(message);
-      const bubbleLines = wrapMessageForBubble(message);
-      const fromAddressSegments = splitMessageIntoSegments(senderAddr, 64);
-
-      const svg = buildBubbleSvg(bubbleLines);
-      const dataUri = svgToDataUri(svg);
-      const imageChunks = chunkString(dataUri, 64);
+      const messagePreview =
+        safeMessage.length > 61 ? safeMessage.slice(0, 61) + "..." : safeMessage;
 
       const description = "On-chain message sent via matotam.io";
 
-      const metadata = {
+      const fromShort = `${senderAddr.slice(0, 16)}...${senderAddr.slice(-4)}`;
+      const fromAddressSegments = splitIntoSegments(senderAddr, 64);
+      const toAddressSegments = splitIntoSegments(recipientAddress, 64);
+
+      // SVG bubble + image data URI, rozkúskované na 64-znakové segmenty
+      const bubbleLines = wrapMessageForBubble(safeMessage);
+      const svg = buildBubbleSvg(bubbleLines);
+      const dataUri = svgToDataUri(svg);
+
+      const MAX_IMAGE_CHARS = 4096;
+      const shortenedDataUri = dataUri.slice(0, MAX_IMAGE_CHARS);
+      const imageChunks = splitIntoSegments(shortenedDataUri, 64);
+
+      const rawMetadata721 = {
         [policyId]: {
-          "": {
-            name: "matotam",
-            description: "matotam – on-chain messages as NFTs",
-            source: "https://matotam.io",
-          },
-          [assetName]: {
-            name: assetName,
-            description:
-              description.length > 64 ? description.slice(0, 64) : description,
+          [ `matotam-${safeMessage.slice(0, 12) || "msg"}` ]: {
+            name: `matotam-${safeMessage.slice(0, 12) || "msg"}`,
+            description,
+            messagePreview,
             messageSegments,
-            bubbleLines,
             image: imageChunks,
             mediaType: "image/svg+xml",
             createdAt: Date.now().toString(),
+            fromShort,
             fromAddressSegments,
+            toAddressSegments,
             source: "https://matotam.io",
           },
         },
       };
 
+      const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
+
+      const assetName = Object.keys(rawMetadata721[policyId])[0];
+      const assetNameBytes = new TextEncoder().encode(assetName);
+      const assetNameHex = toHex(assetNameBytes);
+      const unit = policyId + assetNameHex;
+
       const tx = await lucid
         .newTx()
         .mintAssets({ [unit]: 1n })
         .attachMintingPolicy(policy)
-        .attachMetadata(721, metadata)
+        .attachMetadata(721, metadata721 as any)
         .payToAddress(recipientAddress, {
           lovelace: 1_500_000n,
           [unit]: 1n,
@@ -544,16 +715,21 @@ export default function Home() {
         .payToAddress(DEV_ADDRESS, {
           lovelace: 100_000n,
         })
-        .changeAddress(senderAddr)
         .complete();
 
       const signed = await tx.sign().complete();
       const hash = await signed.submit();
 
       setTxHash(hash);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError("Failed to send transaction.");
+
+      const msg =
+        e?.name === "InputsExhaustedError"
+          ? "Not enough ADA / UTxOs in the connected wallet to cover outputs and fees."
+          : e?.message || "Failed to send transaction.";
+
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -586,7 +762,7 @@ export default function Home() {
               onClick={() => {
                 setActiveTab("inbox");
                 setTxHash(null);
-                if (walletConnected && walletAddress) loadInbox();
+                if (walletConnected) loadInbox();
               }}
               className={`px-3 py-1 rounded-2xl border ${
                 activeTab === "inbox"
@@ -611,9 +787,7 @@ export default function Home() {
         {/* Wallet picker */}
         {showWalletPicker && availableWallets.length > 1 && (
           <div className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-3 text-sm space-y-2">
-            <p className="text-xs text-slate-400">
-              Choose a wallet to connect:
-            </p>
+            <p className="text-xs text-slate-400">Choose a wallet to connect:</p>
             <div className="flex flex-wrap gap-2">
               {availableWallets.map((id) => (
                 <button
@@ -673,7 +847,10 @@ export default function Home() {
                   <span>Your inbox</span>
                   <button
                     type="button"
-                    onClick={loadInbox}
+                    onClick={() => {
+                      setTxHash(null);
+                      loadInbox();
+                    }}
                     disabled={inboxLoading}
                     className="px-2 py-1 rounded-2xl border border-slate-600 hover:border-sky-500 hover:text-sky-300 disabled:opacity-60"
                   >
@@ -717,15 +894,19 @@ export default function Home() {
                         !Number.isNaN(Number(m.createdAt)) && (
                           <p className="text-slate-500">
                             Received:{" "}
-                            {new Date(
-                              Number(m.createdAt)
-                            ).toLocaleString()}
+                            {new Date(Number(m.createdAt)).toLocaleString()}
                           </p>
                         )}
 
                       <p className="text-slate-500 break-all">
                         Asset: {m.policyId}.{m.assetName}
                       </p>
+
+                      {m.fromAddress && (
+                        <p className="text-slate-500 break-all">
+                          From: {m.fromAddress}
+                        </p>
+                      )}
 
                       <div className="flex flex-wrap items-center gap-3 mt-1">
                         <a
@@ -742,9 +923,9 @@ export default function Home() {
                             type="button"
                             onClick={() => {
                               setActiveTab("send");
+                              setTxHash(null);
                               setToAddress(m.fromAddress || "");
                               setMessage("");
-                              setTxHash(null);
                             }}
                             className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200"
                           >
@@ -816,6 +997,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* How it works */}
         {/* Info dropdowns */}
         <div className="mt-4 border-t border-slate-800 pt-4 text-[11px] text-slate-400 space-y-2">
           <details className="rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-2">
@@ -861,6 +1043,7 @@ export default function Home() {
             </div>
           </details>
         </div>
+
       </div>
     </main>
   );
