@@ -346,38 +346,43 @@ export default function Home() {
 
       let assets: any[] = [];
 
-      // 1) Primárne skúsime celý účet cez stake adresu
+      // Pomocná funkcia: načítaj viac strán z daného endpointu
+      async function fetchAssetsPaged(baseUrl: string, maxPages = 10) {
+        const all: any[] = [];
+        for (let page = 1; page <= maxPages; page++) {
+          const url = `${baseUrl}?page=${page}&count=100`;
+          const resp = await fetch(url, { headers });
+
+          if (!resp.ok) {
+            console.warn("Failed to load assets page", page, "status:", resp.status);
+            break;
+          }
+
+          const data: any[] = await resp.json();
+          if (!Array.isArray(data) || data.length === 0) break;
+
+          all.push(...data);
+
+          // ak prišlo menej ako 100, ďalšia stránka už nebude
+          if (data.length < 100) break;
+        }
+        return all;
+      }
+
+      // 1) Primárne skúsime celý účet cez stake adresu (viac strán)
       if (stakeAddress) {
-        const resp = await fetch(
-          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`,
-          { headers }
+        assets = await fetchAssetsPaged(
+          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`
         );
-
-        if (resp.ok) {
-          assets = await resp.json();
-        } else {
-          console.warn(
-            "Failed to load account assets, status:",
-            resp.status
-          );
-        }
       }
 
-      // 2) Fallback – ak zlyhá accounts endpoint, skúsime aspoň jednu adresu
+      // 2) Fallback – ak nič, skúsime aspoň jednu adresu (tiež viac strán)
       if (assets.length === 0 && walletAddress) {
-        const addrResp = await fetch(
-          `${BLOCKFROST_API}/addresses/${walletAddress}/assets`,
-          { headers }
+        assets = await fetchAssetsPaged(
+          `${BLOCKFROST_API}/addresses/${walletAddress}/assets`
         );
-        if (addrResp.ok) {
-          assets = await addrResp.json();
-        } else {
-          console.warn(
-            "Failed to load address assets, status:",
-            addrResp.status
-          );
-        }
       }
+
 
       const messages: MatotamMessage[] = [];
 
@@ -904,7 +909,11 @@ export default function Home() {
 
                       <div className="flex flex-wrap items-center gap-3 mt-1">
                         <a
-                          href={`https://pool.pm/${m.policyId}.${m.assetName}`}
+                              href={
+                                      m.fingerprint
+                                        ? `https://pool.pm/${m.fingerprint}`
+                                        : `https://pool.pm/${m.unit}`
+                                    }
                           target="_blank"
                           rel="noreferrer"
                           className="inline-block text-sky-400 hover:text-sky-300"
