@@ -396,11 +396,11 @@ export default function Home() {
         if (!meta) continue;
 
         const name = String(meta.name ?? "");
-        const desc = String(meta.description ?? "");
-        const source = typeof meta.source === "string" ? meta.source : "";
+        const desc = String(meta.description ?? meta.Description ?? "");
+        const source = String(meta.source ?? meta.Source ?? "");
 
         const isMatotam =
-          source === "https://matotam.io" ||
+          source.toLowerCase().includes("matotam.io") ||
           name.toLowerCase().includes("matotam") ||
           desc.toLowerCase().includes("matotam");
 
