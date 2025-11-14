@@ -1,0 +1,1027 @@
+"use client";
+
+import { useState } from "react";
+
+const WALLET_LABELS: Record<string, string> = {
+  nami: "Nami",
+  eternl: "Eternl",
+  lace: "Lace",
+  vespr: "VESPR",
+  flint: "Flint",
+};
+
+// Blockfrost config – MAINNET
+const BLOCKFROST_API = "https://cardano-mainnet.blockfrost.io/api/v0";
+const BLOCKFROST_KEY = "mainnetjK2y8L83PWohEHDWRNgO5UjeMG3A3kJe";
+
+// ADA Handle mainnet policy (OG collection)
+const ADA_HANDLE_POLICY_ID =
+  "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a";
+
+// MAINNET matotam dev / service address (0.1 ADA fee, môže burnovať)
+const DEV_ADDRESS =
+  "addr1q8d5hu0c0x9vyklqdshkx6t0mw3t9tv46c6g4wvqecduqq2e9wy54x7ffcdly855h96s805k9e3z4pgpmeyu5tjfudfsksgfnq";
+
+type MatotamMessage = {
+  unit: string;
+  policyId: string;
+  assetName: string;
+  fingerprint?: string;
+  fullText: string;
+  textPreview: string;
+  createdAt?: string;
+  fromAddress?: string;
+  imageDataUri?: string;
+};
+
+// ---------- helpers -------------------------------------------------
+
+function splitIntoSegments(str: string, size = 64): string[] {
+  const segments: string[] = [];
+  for (let i = 0; i < str.length; i += size) {
+    segments.push(str.slice(i, i + size));
+  }
+  return segments;
+}
+
+function looksLikeAdaHandle(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (v.startsWith("$")) return true;
+  if (!v.startsWith("addr") && !v.startsWith("stake") && !v.includes(" ")) {
+    return true;
+  }
+  return false;
+}
+
+// ADA Handle resolver – handle.me + Blockfrost + CIP-25 fallback
+async function resolveAdaHandle(handle: string): Promise<string | null> {
+  try {
+    const raw = handle.trim();
+    const base = raw.startsWith("$") ? raw.slice(1) : raw;
+    const name = base.trim();
+    if (!name) return null;
+
+    //
+    // 1) Pokus cez oficiálne ADA Handle API (api.handle.me)
+    //
+    try {
+      const apiResp = await fetch(
+        `https://api.handle.me/handles/${encodeURIComponent(name)}`
+      );
+
+      if (apiResp.ok) {
+        const data: any = await apiResp.json();
+        console.log("handle.me response", data);
+
+        // holder = stake adresa (stake1...)
+        const stake = data?.holder;
+        if (typeof stake === "string" && stake.startsWith("stake")) {
+          const bfResp = await fetch(
+            `${BLOCKFROST_API}/accounts/${stake}/addresses`,
+            { headers: { project_id: BLOCKFROST_KEY } }
+          );
+
+          if (bfResp.ok) {
+            const addrs: any[] = await bfResp.json();
+            const baseAddr = addrs.find(
+              (a) =>
+                a &&
+                typeof a.address === "string" &&
+                a.address.startsWith("addr")
+            );
+            if (baseAddr?.address) {
+              return baseAddr.address as string;
+            }
+          } else {
+            console.warn(
+              "Blockfrost account lookup failed for handle holder, status:",
+              bfResp.status
+            );
+          }
+        }
+      } else {
+        console.warn("handle.me status", apiResp.status);
+      }
+    } catch (err) {
+      console.warn("handle.me resolve error", err);
+    }
+
+    //
+    // 2) Fallback – starý CIP-25 resolver cez Blockfrost
+    //
+    const { toHex } = await import("lucid-cardano");
+
+    const variants = Array.from(
+      new Set([
+        name,
+        name[0]?.toUpperCase() + name.slice(1),
+        name.toUpperCase(),
+      ])
+    ).filter(Boolean) as string[];
+
+    for (const variant of variants) {
+      const bytes = new TextEncoder().encode(variant);
+      const assetNameHex = toHex(bytes);
+      const unit = ADA_HANDLE_POLICY_ID + assetNameHex;
+
+      const resp = await fetch(`${BLOCKFROST_API}/assets/${unit}/addresses`, {
+        headers: { project_id: BLOCKFROST_KEY },
+      });
+
+      if (!resp.ok) continue;
+      const data: any = await resp.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      const addr = data[0]?.address;
+      if (typeof addr === "string" && addr.startsWith("addr")) {
+        return addr;
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error("resolveAdaHandle error", err);
+    return null;
+  }
+}
+
+// ----- helpers pre SVG bubble ---------------------------------------
+
+function wrapMessageForBubble(
+  text: string,
+  maxLineLength = 24,
+  maxLines = 5
+): string[] {
+  const trimmed = text.slice(0, 256).trim();
+  if (!trimmed) return [];
+
+  const words = trimmed.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? current + " " + word : word;
+    if (candidate.length <= maxLineLength) {
+      current = candidate;
+    } else {
+      if (current) {
+        lines.push(current);
+        if (lines.length >= maxLines) return lines;
+      }
+      current = word.length > maxLineLength ? word.slice(0, maxLineLength) : word;
+    }
+    if (lines.length >= maxLines) break;
+  }
+
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines;
+}
+
+function buildBubbleSvg(lines: string[]): string {
+  const safeLines = lines.length > 0 ? lines : ["(empty message)"];
+  const lineHeight = 28;
+  const startY = 120;
+
+  const textElements = safeLines
+    .map((line, idx) => {
+      const y = startY + idx * lineHeight;
+      const escaped = line
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return `<text x="300" y="${y}" text-anchor="middle"
+          fill="#e5e7eb" font-size="22"
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+          ${escaped}
+        </text>`;
+    })
+    .join("");
+
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
+  <rect x="40" y="40" width="520" height="240" rx="40" ry="40"
+        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
+  <path d="M 260 280 L 275 320 L 315 280"
+        fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
+  ${textElements}
+</svg>`.trim();
+}
+
+function svgToDataUri(svg: string): string {
+  const encoded = encodeURIComponent(svg)
+    .replace(/'/g, "%27")
+    .replace(/"/g, "%22");
+  return `data:image/svg+xml,${encoded}`;
+}
+
+// ---------- COMPONENT ------------------------------------------------
+
+export default function Home() {
+  const [message, setMessage] = useState("");
+  const [toAddress, setToAddress] = useState("");
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [stakeAddress, setStakeAddress] = useState<string | null>(null);
+  const [availableWallets, setAvailableWallets] = useState<string[]>([]);
+  const [showWalletPicker, setShowWalletPicker] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<"send" | "inbox">("send");
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxMessages, setInboxMessages] = useState<MatotamMessage[]>([]);
+  const [burningUnit, setBurningUnit] = useState<string | null>(null);
+
+  // ---------- wallet connect / disconnect -----------------------------
+
+  async function handleConnectClick() {
+    try {
+      setError(null);
+      setTxHash(null);
+
+      const cardano = (window as any).cardano;
+      if (!cardano) {
+        setError("No Cardano wallets detected in your browser.");
+        return;
+      }
+
+      const ids = Object.keys(cardano).filter((key) => {
+        try {
+          return !!cardano[key]?.enable;
+        } catch {
+          return false;
+        }
+      });
+
+      if (ids.length === 0) {
+        setError("No CIP-30 compatible wallets found.");
+        return;
+      }
+
+      if (ids.length === 1) {
+        await connectWithWallet(ids[0]);
+      } else {
+        setAvailableWallets(ids);
+        setShowWalletPicker(true);
+      }
+    } catch (e) {
+      console.error(e);
+      setError("Failed to detect wallets.");
+    }
+  }
+
+  async function connectWithWallet(id: string) {
+    try {
+      setError(null);
+
+      if (!BLOCKFROST_KEY) {
+        setError("Blockfrost key is not configured.");
+        return;
+      }
+
+      const cardano = (window as any).cardano;
+      if (!cardano || !cardano[id]) {
+        setError("Selected wallet is not available.");
+        return;
+      }
+
+      const wallet = cardano[id];
+      const api = await wallet.enable();
+
+      const { Lucid, Blockfrost } = await import("lucid-cardano");
+
+      const lucid = await Lucid.new(
+        new Blockfrost(BLOCKFROST_API, BLOCKFROST_KEY),
+        "Mainnet"
+      );
+
+      lucid.selectWallet(api);
+      (window as any).lucid = lucid;
+
+      const addr = await lucid.wallet.address();
+      const stake = await lucid.wallet.rewardAddress();
+      setWalletAddress(addr);
+      setStakeAddress(stake ?? null);
+      setWalletConnected(true);
+      setShowWalletPicker(false);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to connect wallet.");
+    }
+  }
+
+  function disconnectWallet() {
+    const anyWindow = window as any;
+    if (anyWindow.lucid) delete anyWindow.lucid;
+
+    setWalletConnected(false);
+    setWalletAddress(null);
+    setStakeAddress(null);
+    setTxHash(null);
+    setError(null);
+    setShowWalletPicker(false);
+    setInboxMessages([]);
+  }
+
+  // ---------- inbox ---------------------------------------------------
+
+  async function loadInbox() {
+    try {
+      if (!walletConnected) {
+        setError("Connect your wallet to see your inbox.");
+        return;
+      }
+      if (!BLOCKFROST_KEY) {
+        setError("Blockfrost key is not configured.");
+        return;
+      }
+
+      setError(null);
+      setInboxLoading(true);
+      setInboxMessages([]);
+
+      const headers = { project_id: BLOCKFROST_KEY };
+
+      let assets: any[] = [];
+
+      // 1) Primárne skúsime celý účet cez stake adresu
+      if (stakeAddress) {
+        const resp = await fetch(
+          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`,
+          { headers }
+        );
+
+        if (resp.ok) {
+          assets = await resp.json();
+        } else {
+          console.warn(
+            "Failed to load account assets, status:",
+            resp.status
+          );
+        }
+      }
+
+      // 2) Fallback – ak zlyhá accounts endpoint, skúsime aspoň jednu adresu
+      if (assets.length === 0 && walletAddress) {
+        const addrResp = await fetch(
+          `${BLOCKFROST_API}/addresses/${walletAddress}/assets`,
+          { headers }
+        );
+        if (addrResp.ok) {
+          assets = await addrResp.json();
+        } else {
+          console.warn(
+            "Failed to load address assets, status:",
+            addrResp.status
+          );
+        }
+      }
+
+      const messages: MatotamMessage[] = [];
+
+      // 3) Pre každý asset stiahneme detail /assets/{unit}
+      for (const asset of assets) {
+        const unit: string = asset.unit;
+        if (!unit) continue;
+
+        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+          headers,
+        });
+        if (!assetResp.ok) continue;
+
+        const assetData: any = await assetResp.json();
+        const meta = assetData.onchain_metadata;
+        if (!meta) continue;
+
+        const name = String(meta.name ?? "");
+        const desc = String(meta.description ?? "");
+        const source = typeof meta.source === "string" ? meta.source : "";
+
+        const isMatotam =
+          source === "https://matotam.io" ||
+          name.toLowerCase().includes("matotam") ||
+          desc.toLowerCase().includes("matotam");
+
+        if (!isMatotam) continue;
+
+        let fullText = "";
+        if (Array.isArray(meta.messageSegments)) {
+          fullText = meta.messageSegments.map((s: any) => String(s)).join("");
+        } else if (typeof meta.message === "string") {
+          fullText = meta.message;
+        } else {
+          fullText = desc || name || "";
+        }
+
+        const preview =
+          fullText.length > 80 ? fullText.slice(0, 77) + "..." : fullText || name;
+
+        const createdAt = meta.createdAt ? String(meta.createdAt) : undefined;
+
+        let fromAddress: string | undefined;
+        if (Array.isArray(meta.fromAddressSegments)) {
+          fromAddress = (meta.fromAddressSegments as any[])
+            .map(String)
+            .join("");
+        } else if (typeof meta.fromShort === "string") {
+          fromAddress = meta.fromShort;
+        }
+
+        let imageDataUri: string | undefined;
+        if (Array.isArray(meta.image)) {
+          imageDataUri = meta.image.map((s: any) => String(s)).join("");
+        } else if (typeof meta.image === "string") {
+          imageDataUri = meta.image;
+        }
+
+        messages.push({
+          unit,
+          policyId: assetData.policy_id,
+          assetName: assetData.asset_name,
+          fingerprint: assetData.fingerprint,
+          fullText,
+          textPreview: preview,
+          createdAt,
+          fromAddress,
+          imageDataUri,
+        });
+      }
+
+      setInboxMessages(messages);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to load inbox.");
+    } finally {
+      setInboxLoading(false);
+    }
+  }
+
+  // ---------- burn ---------------------------------------------------
+
+  async function burnMessage(unit: string) {
+    try {
+      if (!walletConnected || !walletAddress) {
+        setError("Connect your wallet first.");
+        return;
+      }
+
+      setError(null);
+      setBurningUnit(unit);
+
+      const anyWindow = window as any;
+      const lucid = anyWindow.lucid;
+      if (!lucid) {
+        setError("Lucid is not initialized. Try reconnecting your wallet.");
+        setBurningUnit(null);
+        return;
+      }
+
+      const myAddr = await lucid.wallet.address();
+      const myCred = lucid.utils.paymentCredentialOf(myAddr);
+
+      let policy: any = null;
+      let policyId: string | null = null;
+
+      // Pokus: nová 3-sig policy (sender OR recipient OR matotam) z metadata
+      try {
+        const headers = { project_id: BLOCKFROST_KEY };
+        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+          headers,
+        });
+
+        if (assetResp.ok) {
+          const assetData: any = await assetResp.json();
+          const meta = assetData.onchain_metadata || {};
+
+          let fromAddrMeta: string | null = null;
+          let toAddrMeta: string | null = null;
+
+          if (Array.isArray(meta.fromAddressSegments)) {
+            fromAddrMeta = (meta.fromAddressSegments as any[])
+              .map(String)
+              .join("");
+          }
+          if (Array.isArray(meta.toAddressSegments)) {
+            toAddrMeta = (meta.toAddressSegments as any[])
+              .map(String)
+              .join("");
+          }
+
+          if (fromAddrMeta && toAddrMeta) {
+            const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
+            const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
+            const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+            // Only sender, original recipient, or matotam can burn
+            if (
+              myCred.hash !== fromCred.hash &&
+              myCred.hash !== toCred.hash &&
+              myCred.hash !== matotamCred.hash
+            ) {
+              setError(
+                "Only the sender, the original recipient, or matotam can burn this message."
+              );
+              setBurningUnit(null);
+              return;
+            }
+
+            const policyJson = {
+              type: "any",
+              scripts: [
+                { type: "sig", keyHash: fromCred.hash },
+                { type: "sig", keyHash: toCred.hash },
+                { type: "sig", keyHash: matotamCred.hash },
+              ],
+            };
+
+            policy = lucid.utils.nativeScriptFromJson(policyJson);
+            policyId = lucid.utils.mintingPolicyToId(policy);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to reconstruct 3-sig policy from metadata", e);
+      }
+
+      // Fallback: legacy single-sig policy (minter-only) pre staré testovacie NFT
+      if (!policy || !policyId) {
+        const policyJsonLegacy = { type: "sig", keyHash: myCred.hash };
+        policy = lucid.utils.nativeScriptFromJson(policyJsonLegacy);
+        policyId = lucid.utils.mintingPolicyToId(policy);
+      }
+
+      if (!policyId || !unit.startsWith(policyId)) {
+        setError(
+          "This message was minted with a different policy and cannot be burned from this wallet."
+        );
+        setBurningUnit(null);
+        return;
+      }
+      
+      const utxos = await lucid.utxosAt(walletAddress);
+      const target = utxos.find((u: any) => {
+        const qty = u.assets?.[unit];
+        return typeof qty === "bigint" && qty > 0n;
+      });
+
+      if (!target) {
+        setError("Could not find this NFT in your UTxOs.");
+        setBurningUnit(null);
+        return;
+      }
+
+      const tx = await lucid
+        .newTx()
+        .collectFrom([target])
+        .mintAssets({ [unit]: -1n })
+        .attachMintingPolicy(policy)
+        .complete();
+
+      const signed = await tx.sign().complete();
+      const hash = await signed.submit();
+
+      setTxHash(hash);
+      setInboxMessages((prev) => prev.filter((m) => m.unit !== unit));
+    } catch (e) {
+      console.error(e);
+      setError("Failed to burn message.");
+    } finally {
+      setBurningUnit(null);
+    }
+  }
+
+  // ---------- send NFT ------------------------------------------------
+
+  async function sendMessageAsNFT() {
+    try {
+      setError(null);
+      setTxHash(null);
+
+      if (!walletConnected) {
+        setError("Connect your wallet first.");
+        return;
+      }
+      if (!message.trim()) {
+        setError("Message cannot be empty.");
+        return;
+      }
+      if (!toAddress.trim()) {
+        setError("Recipient is required.");
+        return;
+      }
+      if (!BLOCKFROST_KEY) {
+        setError("Blockfrost key is not configured.");
+        return;
+      }
+
+      setLoading(true);
+
+      const anyWindow = window as any;
+      const lucid = anyWindow.lucid;
+      if (!lucid) {
+        setError("Lucid is not initialized. Try reconnecting your wallet.");
+        setLoading(false);
+        return;
+      }
+
+      // resolve recipient
+      let recipientAddress = toAddress.trim();
+      if (looksLikeAdaHandle(recipientAddress)) {
+        const resolved = await resolveAdaHandle(recipientAddress);
+        if (!resolved) {
+          setError("Could not resolve ADA Handle.");
+          setLoading(false);
+          return;
+        }
+        recipientAddress = resolved;
+      }
+
+      const senderAddr = await lucid.wallet.address();
+      const { toHex } = await import("lucid-cardano");
+
+      // 3-sig policy: sender OR recipient OR matotam môže mint/burn
+      const senderCred = lucid.utils.paymentCredentialOf(senderAddr);
+      const recipientCred = lucid.utils.paymentCredentialOf(recipientAddress);
+      const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+      const policyJson = {
+        type: "any",
+        scripts: [
+          { type: "sig", keyHash: senderCred.hash },
+          { type: "sig", keyHash: recipientCred.hash },
+          { type: "sig", keyHash: matotamCred.hash },
+        ],
+      };
+
+      const policy = lucid.utils.nativeScriptFromJson(policyJson);
+      const policyId = lucid.utils.mintingPolicyToId(policy);
+
+      const safeMessage = message.trim().slice(0, 256);
+      const messageSegments = splitIntoSegments(safeMessage, 64);
+
+      const messagePreview =
+        safeMessage.length > 61 ? safeMessage.slice(0, 61) + "..." : safeMessage;
+
+      const description = "On-chain message sent via matotam.io";
+
+      const fromShort = `${senderAddr.slice(0, 16)}...${senderAddr.slice(-4)}`;
+      const fromAddressSegments = splitIntoSegments(senderAddr, 64);
+      const toAddressSegments = splitIntoSegments(recipientAddress, 64);
+
+      // SVG bubble + image data URI, rozkúskované na 64-znakové segmenty
+      const bubbleLines = wrapMessageForBubble(safeMessage);
+      const svg = buildBubbleSvg(bubbleLines);
+      const dataUri = svgToDataUri(svg);
+
+      const MAX_IMAGE_CHARS = 4096;
+      const shortenedDataUri = dataUri.slice(0, MAX_IMAGE_CHARS);
+      const imageChunks = splitIntoSegments(shortenedDataUri, 64);
+
+      const rawMetadata721 = {
+        [policyId]: {
+          [ `matotam-${safeMessage.slice(0, 12) || "msg"}` ]: {
+            name: `matotam-${safeMessage.slice(0, 12) || "msg"}`,
+            description,
+            messagePreview,
+            messageSegments,
+            image: imageChunks,
+            mediaType: "image/svg+xml",
+            createdAt: Date.now().toString(),
+            fromShort,
+            fromAddressSegments,
+            toAddressSegments,
+            source: "https://matotam.io",
+          },
+        },
+      };
+
+      const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
+
+      const assetName = Object.keys(rawMetadata721[policyId])[0];
+      const assetNameBytes = new TextEncoder().encode(assetName);
+      const assetNameHex = toHex(assetNameBytes);
+      const unit = policyId + assetNameHex;
+
+      const tx = await lucid
+        .newTx()
+        .mintAssets({ [unit]: 1n })
+        .attachMintingPolicy(policy)
+        .attachMetadata(721, metadata721 as any)
+        .payToAddress(recipientAddress, {
+          lovelace: 1_500_000n,
+          [unit]: 1n,
+        })
+        .payToAddress(DEV_ADDRESS, {
+          lovelace: 100_000n,
+        })
+        .complete();
+
+      const signed = await tx.sign().complete();
+      const hash = await signed.submit();
+
+      setTxHash(hash);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to send transaction.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---------- UI ------------------------------------------------------
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl space-y-6">
+        {/* Tabs + title */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex gap-2 text-xs sm:text-sm">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("send");
+                setTxHash(null);
+              }}
+              className={`px-3 py-1 rounded-2xl border ${
+                activeTab === "send"
+                  ? "border-sky-500 bg-sky-500/10 text-sky-300"
+                  : "border-slate-700 text-slate-400 hover:border-sky-500 hover:text-sky-300"
+              }`}
+            >
+              Send
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("inbox");
+                setTxHash(null);
+                if (walletConnected) loadInbox();
+              }}
+              className={`px-3 py-1 rounded-2xl border ${
+                activeTab === "inbox"
+                  ? "border-sky-500 bg-sky-500/10 text-sky-300"
+                  : "border-slate-700 text-slate-400 hover:border-sky-500 hover:text-sky-300"
+              }`}
+            >
+              Inbox
+            </button>
+          </div>
+        </div>
+
+        <div className="text-center text-4xl font-bold tracking-tight">
+          matotam
+        </div>
+
+        <p className="text-sm text-slate-300 text-center">
+          Send a message as an NFT directly to a Cardano wallet. Simple.
+          Decentralized. No backend.
+        </p>
+
+        {/* Wallet picker */}
+        {showWalletPicker && availableWallets.length > 1 && (
+          <div className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-3 text-sm space-y-2">
+            <p className="text-xs text-slate-400">Choose a wallet to connect:</p>
+            <div className="flex flex-wrap gap-2">
+              {availableWallets.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => connectWithWallet(id)}
+                  className="px-3 py-1 rounded-2xl border border-slate-600 text-xs hover:border-sky-500 hover:text-sky-400"
+                >
+                  {WALLET_LABELS[id] ?? id}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Main content */}
+        {activeTab === "send" ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm mb-1">Message</label>
+              <textarea
+                className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                rows={4}
+                maxLength={256}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type your message..."
+              />
+              <div className="text-xs text-slate-500 mt-1 text-right">
+                {message.length}/256 (stored on-chain as text + SVG image)
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm mb-1">
+                Recipient (Cardano address or ADA Handle)
+              </label>
+              <input
+                className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                value={toAddress}
+                onChange={(e) => setToAddress(e.target.value)}
+                placeholder="addr1... or $handle"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {!walletConnected && (
+              <p className="text-xs text-slate-400 text-center">
+                Connect your wallet to see your matotam inbox.
+              </p>
+            )}
+
+            {walletConnected && (
+              <>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Your inbox</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxHash(null);
+                      loadInbox();
+                    }}
+                    disabled={inboxLoading}
+                    className="px-2 py-1 rounded-2xl border border-slate-600 hover:border-sky-500 hover:text-sky-300 disabled:opacity-60"
+                  >
+                    {inboxLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+
+                {inboxLoading && (
+                  <p className="text-xs text-slate-400 text-center">
+                    Loading messages…
+                  </p>
+                )}
+
+                {!inboxLoading && inboxMessages.length === 0 && (
+                  <p className="text-xs text-slate-500 text-center">
+                    No matotam messages found for this address yet.
+                  </p>
+                )}
+
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {inboxMessages.map((m) => (
+                    <div
+                      key={m.unit}
+                      className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs space-y-1"
+                    >
+                      {m.imageDataUri && (
+                        <div className="mb-1">
+                          <img
+                            src={m.imageDataUri}
+                            alt="matotam message preview"
+                            className="w-full max-h-40 object-contain rounded-xl border border-slate-800"
+                          />
+                        </div>
+                      )}
+
+                      <p className="text-slate-100">
+                        {m.textPreview || "(no text)"}
+                      </p>
+
+                      {m.createdAt &&
+                        !Number.isNaN(Number(m.createdAt)) && (
+                          <p className="text-slate-500">
+                            Received:{" "}
+                            {new Date(Number(m.createdAt)).toLocaleString()}
+                          </p>
+                        )}
+
+                      <p className="text-slate-500 break-all">
+                        Asset: {m.policyId}.{m.assetName}
+                      </p>
+
+                      {m.fromAddress && (
+                        <p className="text-slate-500 break-all">
+                          From: {m.fromAddress}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-3 mt-1">
+                        <a
+                          href={`https://pool.pm/${m.policyId}.${m.assetName}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block text-sky-400 hover:text-sky-300"
+                        >
+                          View on pool.pm
+                        </a>
+
+                        {m.fromAddress && walletConnected && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab("send");
+                              setTxHash(null);
+                              setToAddress(m.fromAddress || "");
+                              setMessage("");
+                            }}
+                            className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200"
+                          >
+                            ↩ Reply
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => burnMessage(m.unit)}
+                          disabled={burningUnit === m.unit}
+                          className="inline-flex items-center gap-1 text-red-300 hover:text-red-200 disabled:opacity-60"
+                        >
+                          {burningUnit === m.unit
+                            ? "Burning…"
+                            : "🔥 Burn & reclaim ADA"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Connect / send buttons */}
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={walletConnected ? disconnectWallet : handleConnectClick}
+            className={`flex-1 rounded-2xl border px-3 py-2 text-sm font-medium ${
+              walletConnected
+                ? "border-red-400 text-red-300 hover:border-red-500"
+                : "border-slate-600 hover:border-sky-500 hover:text-sky-400"
+            }`}
+          >
+            {walletConnected ? "Disconnect wallet" : "Connect wallet"}
+          </button>
+
+          {activeTab === "send" && (
+            <button
+              onClick={sendMessageAsNFT}
+              disabled={loading}
+              className="flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
+            >
+              {loading ? "Sending..." : "Send as NFT"}
+            </button>
+          )}
+        </div>
+
+        {/* Wallet address */}
+        {walletAddress && (
+          <p className="text-xs text-emerald-400 text-center font-mono break-all">
+            Your address: {walletAddress}
+          </p>
+        )}
+
+        {/* Error + tx hash */}
+        {error && (
+          <div className="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-2xl px-3 py-2 mt-2">
+            {error}
+          </div>
+        )}
+
+        {txHash && (
+          <div className="text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800 rounded-2xl px-3 py-2 mt-2">
+            Tx submitted:{" "}
+            <span className="font-mono break-all">{txHash}</span>
+          </div>
+        )}
+
+        {/* How it works */}
+        <div className="mt-4 border-t border-slate-800 pt-4 text-[11px] text-slate-400 space-y-1">
+          <p className="font-semibold text-slate-300 text-center">
+            How it works
+          </p>
+          <p>① You write a short message (up to 256 characters).</p>
+          <p>
+            ② Your wallet signs a transaction that mints a tiny NFT containing
+            your message as text plus a small SVG bubble image.
+          </p>
+          <p>
+            ③ The NFT is sent to the recipient&apos;s Cardano address (or ADA
+            Handle) and appears in their wallet / on pool.pm.
+          </p>
+          <p>
+            ④ This message NFT can later be burned by the original sender, the
+            original recipient, or the matotam service address to reclaim the
+            ADA locked inside.
+          </p>
+        </div>
+
+        <p className="text-[11px] text-slate-500 text-center">
+          Messages are stored permanently on the Cardano blockchain — do not
+          send sensitive information.
+          <br />
+          Minting and network fees apply (typically 1.6–2.0 ADA total,
+          including the 0.1 ADA developer fee). Most of this ADA can be
+          reclaimed later by burning the message NFT from the wallet of the
+          sender, the recipient, or via the matotam service address.
+        </p>
+      </div>
+    </main>
+  );
+}
