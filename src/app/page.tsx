@@ -482,7 +482,7 @@ export default function Home() {
       const myCred = lucid.utils.paymentCredentialOf(myAddr);
 
       let policy: any = null;
-      let policyId: string | null = null;
+      let policyId: string = "";
 
       // Pokus: nová 3-sig policy (sender OR recipient OR matotam) z metadata
       try {
@@ -721,15 +721,9 @@ export default function Home() {
       const hash = await signed.submit();
 
       setTxHash(hash);
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-
-      const msg =
-        e?.name === "InputsExhaustedError"
-          ? "Not enough ADA / UTxOs in the connected wallet to cover outputs and fees."
-          : e?.message || "Failed to send transaction.";
-
-      setError(msg);
+      setError("Failed to send transaction.");
     } finally {
       setLoading(false);
     }
