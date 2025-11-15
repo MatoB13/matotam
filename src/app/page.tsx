@@ -40,6 +40,58 @@ const assetCache = new Map<string, any>();
 
 // ---------- helpers -------------------------------------------------
 
+// Quick Burn helpers: unit <-> quickBurnId (base64url, bez '=')
+
+function encodeUnitToQuickBurnId(unitHex: string): string {
+  // očakávame čistý hex, párny počet znakov
+  if (!/^[0-9a-fA-F]+$/.test(unitHex) || unitHex.length % 2 !== 0) {
+    throw new Error("Invalid unit hex for quickBurnId.");
+  }
+
+  let binary = "";
+  for (let i = 0; i < unitHex.length; i += 2) {
+    const byte = parseInt(unitHex.slice(i, i + 2), 16);
+    binary += String.fromCharCode(byte);
+  }
+
+  const b64 =
+    typeof btoa === "function"
+      ? btoa(binary)
+      : Buffer.from(binary, "binary").toString("base64");
+
+  // base64url + bez paddingu
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function decodeQuickBurnIdToUnit(quickBurnId: string): string | null {
+  if (!quickBurnId || !/^[A-Za-z0-9\-_]+$/.test(quickBurnId)) {
+    return null;
+  }
+
+  // späť na klasické base64
+  let b64 = quickBurnId.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4 !== 0) {
+    b64 += "=";
+  }
+
+  let binary: string;
+  try {
+    binary =
+      typeof atob === "function"
+        ? atob(b64)
+        : Buffer.from(b64, "base64").toString("binary");
+  } catch {
+    return null;
+  }
+
+  let hex = "";
+  for (let i = 0; i < binary.length; i++) {
+    hex += binary.charCodeAt(i).toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+
 function splitIntoSegments(str: string, size = 64): string[] {
   const segments: string[] = [];
   for (let i = 0; i < str.length; i += size) {
@@ -625,158 +677,156 @@ export default function Home() {
 
   // ---------- Quick Burn (Quick Burn ID / unit) -----------------------
 
-  async function quickBurn() {
-    try {
-      if (!walletConnected || !walletAddress) {
-        setError("Connect your wallet first.");
-        return;
-      }
-      if (!quickBurnInput.trim()) {
-        setError("Paste a Quick Burn ID first.");
-        return;
-      }
-      if (!BLOCKFROST_KEY) {
-        setError("Blockfrost key is not configured.");
-        return;
-      }
-
-      setError(null);
-      setTxHash(null);
-      setQuickBurnLoading(true);
-
-      const { unit, fingerprintLike } = parseQuickBurnInput(quickBurnInput);
-      if (!unit) {
-        if (fingerprintLike) {
-          setError(
-            "This looks like a fingerprint (asset1...). Please open the NFT in your wallet or on pool.pm, find the quickBurnId field in the metadata and paste that value here."
-          );
-        } else {
-          setError("Invalid Quick Burn ID. Please check the input.");
-        }
-        return;
-      }
-
-      const anyWindow = window as any;
-      const lucid = anyWindow.lucid;
-      if (!lucid) {
-        setError("Lucid is not initialized. Try reconnecting your wallet.");
-        return;
-      }
-
-      const headers = { project_id: BLOCKFROST_KEY };
-
-      let assetData: any;
-      if (assetCache.has(unit)) {
-        assetData = assetCache.get(unit);
-      } else {
-        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
-          headers,
-        });
-        if (!assetResp.ok) {
-          setError("Could not load this asset from Blockfrost.");
-          return;
-        }
-        assetData = await assetResp.json();
-        assetCache.set(unit, assetData);
-      }
-
-      const meta = assetData.onchain_metadata || {};
-      const name = String(meta.name ?? "");
-      const desc = String(meta.description ?? meta.Description ?? "");
-      const source = String(meta.source ?? meta.Source ?? "");
-
-      const isMatotam =
-        source.toLowerCase().includes("matotam.io") ||
-        name.toLowerCase().includes("matotam") ||
-        desc.toLowerCase().includes("matotam");
-
-      if (!isMatotam) {
-        setError("This NFT does not look like a matotam message.");
-        return;
-      }
-
-      let fromAddrMeta: string | null = null;
-      let toAddrMeta: string | null = null;
-
-      if (Array.isArray(meta.fromAddressSegments)) {
-        fromAddrMeta = (meta.fromAddressSegments as any[]).map(String).join("");
-      }
-      if (Array.isArray(meta.toAddressSegments)) {
-        toAddrMeta = (meta.toAddressSegments as any[]).map(String).join("");
-      }
-
-      if (!fromAddrMeta || !toAddrMeta) {
-        setError("This message is missing required metadata to burn.");
-        return;
-      }
-
-      const myAddr = await lucid.wallet.address();
-      const myCred = lucid.utils.paymentCredentialOf(myAddr);
-
-      const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
-      const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
-      const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
-
-      if (
-        myCred.hash !== fromCred.hash &&
-        myCred.hash !== toCred.hash &&
-        myCred.hash !== matotamCred.hash
-      ) {
-        setError(
-          "Only the original sender, the original recipient, or matotam can burn this message."
-        );
-        return;
-      }
-
-      const policyJson = {
-        type: "any",
-        scripts: [
-          { type: "sig", keyHash: fromCred.hash },
-          { type: "sig", keyHash: toCred.hash },
-          { type: "sig", keyHash: matotamCred.hash },
-        ],
-      };
-
-      const policy = lucid.utils.nativeScriptFromJson(policyJson);
-      const policyId = lucid.utils.mintingPolicyToId(policy);
-
-      if (!unit.startsWith(policyId)) {
-        setError(
-          "This message was minted with a different policy and cannot be burned from this wallet."
-        );
-        return;
-      }
-
-      const utxos = await lucid.utxosAt(walletAddress);
-      const target = utxos.find((u: any) => {
-        const qty = u.assets?.[unit];
-        return typeof qty === "bigint" && qty > 0n;
-      });
-
-      if (!target) {
-        setError("Could not find this NFT in your UTxOs.");
-        return;
-      }
-
-      const tx = await lucid
-        .newTx()
-        .collectFrom([target])
-        .mintAssets({ [unit]: -1n })
-        .attachMintingPolicy(policy)
-        .complete();
-
-      const signed = await tx.sign().complete();
-      const hash = await signed.submit();
-
-      setTxHash(hash);
-      setQuickBurnInput("");
-    } catch (e) {
-      console.error(e);
-      setError("Failed to burn message.");
-    } finally {
-      setQuickBurnLoading(false);
+async function quickBurn() {
+  try {
+    if (!walletConnected || !walletAddress) {
+      setError("Connect your wallet first.");
+      return;
     }
+    if (!quickBurnInput.trim()) {
+      setError("Paste a Quick Burn ID first.");
+      return;
+    }
+    if (!BLOCKFROST_KEY) {
+      setError("Blockfrost key is not configured.");
+      return;
+    }
+
+    setError(null);
+    setTxHash(null);
+    setQuickBurnLoading(true);
+
+    const rawInput = quickBurnInput.trim();
+    const unit = decodeQuickBurnIdToUnit(rawInput);
+
+    if (!unit || !/^[0-9a-fA-F]+$/.test(unit)) {
+      setError(
+        "Invalid Quick Burn ID. Please copy the exact quickBurnId value from the NFT metadata."
+      );
+      return;
+    }
+
+    const anyWindow = window as any;
+    const lucid = anyWindow.lucid;
+    if (!lucid) {
+      setError("Lucid is not initialized. Try reconnecting your wallet.");
+      return;
+    }
+
+    const headers = { project_id: BLOCKFROST_KEY };
+
+    let assetData: any;
+    if (assetCache.has(unit)) {
+      assetData = assetCache.get(unit);
+    } else {
+      const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+        headers,
+      });
+      if (!assetResp.ok) {
+        setError("Could not load this asset from Blockfrost.");
+        return;
+      }
+      assetData = await assetResp.json();
+      assetCache.set(unit, assetData);
+    }
+
+    const meta = assetData.onchain_metadata || {};
+    const name = String(meta.name ?? "");
+    const desc = String(meta.description ?? meta.Description ?? "");
+    const source = String(meta.source ?? meta.Source ?? "");
+
+    const isMatotam =
+      source.toLowerCase().includes("matotam.io") ||
+      name.toLowerCase().includes("matotam") ||
+      desc.toLowerCase().includes("matotam");
+
+    if (!isMatotam) {
+      setError("This NFT does not look like a matotam message.");
+      return;
+    }
+
+    let fromAddrMeta: string | null = null;
+    let toAddrMeta: string | null = null;
+
+    if (Array.isArray(meta.fromAddressSegments)) {
+      fromAddrMeta = (meta.fromAddressSegments as any[]).map(String).join("");
+    }
+    if (Array.isArray(meta.toAddressSegments)) {
+      toAddrMeta = (meta.toAddressSegments as any[]).map(String).join("");
+    }
+
+    if (!fromAddrMeta || !toAddrMeta) {
+      setError("This message is missing required metadata to burn.");
+      return;
+    }
+
+    const myAddr = await lucid.wallet.address();
+    const myCred = lucid.utils.paymentCredentialOf(myAddr);
+    const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
+    const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
+    const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+    if (
+      myCred.hash !== fromCred.hash &&
+      myCred.hash !== toCred.hash &&
+      myCred.hash !== matotamCred.hash
+    ) {
+      setError(
+        "Only the original sender, the original recipient, or matotam can burn this message."
+      );
+      return;
+    }
+
+    const policyJson = {
+      type: "any",
+      scripts: [
+        { type: "sig", keyHash: fromCred.hash },
+        { type: "sig", keyHash: toCred.hash },
+        { type: "sig", keyHash: matotamCred.hash },
+      ],
+    };
+
+    const policy = lucid.utils.nativeScriptFromJson(policyJson);
+    const policyId = lucid.utils.mintingPolicyToId(policy);
+
+    if (!unit.startsWith(policyId)) {
+      setError(
+        "This message was minted with a different policy and cannot be burned from this wallet."
+      );
+      return;
+    }
+
+    const utxos = await lucid.utxosAt(walletAddress);
+    const target = utxos.find((u: any) => {
+      const qty = u.assets?.[unit];
+      return typeof qty === "bigint" && qty > 0n;
+    });
+
+    if (!target) {
+      setError("Could not find this NFT in your UTxOs.");
+      return;
+    }
+
+    const tx = await lucid
+      .newTx()
+      .collectFrom([target])
+      .mintAssets({ [unit]: -1n })
+      .attachMintingPolicy(policy)
+      .complete();
+
+    const signed = await tx.sign().complete();
+    const hash = await signed.submit();
+
+    setTxHash(hash);
+    setQuickBurnInput("");
+  } catch (e) {
+    console.error(e);
+    setError("Failed to burn message.");
+  } finally {
+    setQuickBurnLoading(false);
   }
+}
+
 
   // ---------- send NFT ------------------------------------------------
 
@@ -867,32 +917,36 @@ export default function Home() {
       const shortenedDataUri = dataUri.slice(0, MAX_IMAGE_CHARS);
       const imageChunks = splitIntoSegments(shortenedDataUri, 64);
 
-      const assetNameBase = `matotam-${safeMessage.slice(0, 12) || "msg"}`;
-      const assetNameBytes = new TextEncoder().encode(assetNameBase);
-      const assetNameHex = toHex(assetNameBytes);
-      const unit = policyId + assetNameHex;
+const assetNameBase = `matotam-${safeMessage.slice(0, 12) || "msg"}`;
 
-      const rawMetadata721 = {
-        [policyId]: {
-          [assetNameBase]: {
-            name: assetNameBase,
-            description,
-            messagePreview,
-            messageSegments,
-            image: imageChunks,
-            mediaType: "image/svg+xml",
-            createdAt: Date.now().toString(),
-            fromShort,
-            fromAddressSegments,
-            toAddressSegments,
-            source: "https://matotam.io",
-            policyLabel,
-            quickBurnId: unit,
-          },
-        },
-      };
+// vypočítame unit a quickBurnId (base64url z unitHex)
+const assetNameBytes = new TextEncoder().encode(assetNameBase);
+const assetNameHex = toHex(assetNameBytes);
+const unit = policyId + assetNameHex;
+const quickBurnId = encodeUnitToQuickBurnId(unit);
 
-      const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
+const rawMetadata721 = {
+  [policyId]: {
+    [assetNameBase]: {
+      name: assetNameBase,
+      description,
+      messagePreview,
+      messageSegments,
+      image: imageChunks,
+      mediaType: "image/svg+xml",
+      createdAt: Date.now().toString(),
+      fromShort,
+      fromAddressSegments,
+      toAddressSegments,
+      source: "https://matotam.io",
+      policyLabel,
+      quickBurnId, // <— tu ukladáme zakódovaný unit
+    },
+  },
+};
+
+const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
+
 
       const tx = await lucid
         .newTx()
@@ -1194,13 +1248,13 @@ export default function Home() {
                 className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 value={quickBurnInput}
                 onChange={(e) => setQuickBurnInput(e.target.value)}
-                placeholder="paste quickBurnId (unit hex)..."
+                placeholder="paste quickBurnId from NFT metadata..."
               />
               <p className="text-[11px] text-slate-500">
-                You can find your <span className="font-semibold">quickBurnId</span>{" "}
-                in the NFT metadata (field <code>quickBurnId</code>) in your
-                wallet or on pool.pm. Copy that value and paste it here to burn
-                the message and reclaim ADA.
+                You can find your <span className="font-semibold">Quick Burn ID</span> in the
+                NFT metadata (field <code>quickBurnId</code>) in your wallet or on pool.pm.
+                Burn is only possible from the original sender or the original recipient of
+                the message.
               </p>
             </div>
 
