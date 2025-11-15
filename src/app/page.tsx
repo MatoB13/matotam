@@ -219,6 +219,13 @@ function svgToDataUri(svg: string): string {
   return `data:image/svg+xml,${encoded}`;
 }
 
+function shortHash(value: string, start = 10, end = 6): string {
+  if (!value) return "";
+  if (value.length <= start + end + 3) return value;
+  return `${value.slice(0, start)}...${value.slice(-end)}`;
+}
+
+
 // ---------- COMPONENT ------------------------------------------------
 
 export default function Home() {
@@ -744,19 +751,34 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center px-4">
       <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl space-y-6">
-        {/* Tabs + title */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex gap-2 text-xs sm:text-sm">
+        {/* Logo + title + tabs */}
+        <div className="flex flex-col items-center gap-3 mb-2">
+          {/* Logo + name */}
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-29 rounded-full border border-sky-500 bg-sky-500/10 flex items-center justify-center text-[20px] font-semibold lowercase tracking-wide text-sky-300">
+              matotam
+            </div>
+
+          </div>
+
+          {/* Tagline */}
+          <p className="text-xs sm:text-sm text-slate-300 text-center max-w-md">
+            Send a message as an NFT directly to a Cardano wallet. Simple.
+            Decentralized. No backend.
+          </p>
+
+          {/* Centered tabs */}
+          <div className="inline-flex items-center justify-center rounded-full border border-slate-800 bg-slate-950/60 p-1 text-xs sm:text-sm mt-3 mb-4">
             <button
               type="button"
               onClick={() => {
                 setActiveTab("send");
                 setTxHash(null);
               }}
-              className={`px-3 py-1 rounded-2xl border ${
+              className={`px-4 py-1 rounded-full transition ${
                 activeTab === "send"
-                  ? "border-sky-500 bg-sky-500/10 text-sky-300"
-                  : "border-slate-700 text-slate-400 hover:border-sky-500 hover:text-sky-300"
+                  ? "bg-sky-500 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-sky-300"
               }`}
             >
               Send
@@ -766,15 +788,14 @@ export default function Home() {
               onClick={() => {
                 setActiveTab("inbox");
                 setTxHash(null);
-                // 🔑 automatický load len keď ešte nič nemáme
                 if (walletConnected && inboxMessages.length === 0) {
                   loadInbox();
                 }
               }}
-              className={`px-3 py-1 rounded-2xl border ${
+              className={`px-4 py-1 rounded-full transition ${
                 activeTab === "inbox"
-                  ? "border-sky-500 bg-sky-500/10 text-sky-300"
-                  : "border-slate-700 text-slate-400 hover:border-sky-500 hover:text-sky-300"
+                  ? "bg-sky-500 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-sky-300"
               }`}
             >
               Inbox
@@ -782,14 +803,6 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="text-center text-4xl font-bold tracking-tight">
-          matotam
-        </div>
-
-        <p className="text-sm text-slate-300 text-center">
-          Send a message as an NFT directly to a Cardano wallet. Simple.
-          Decentralized. No backend.
-        </p>
 
         {/* Wallet picker */}
         {showWalletPicker && availableWallets.length > 1 && (
@@ -812,7 +825,7 @@ export default function Home() {
 
         {/* Main content */}
         {activeTab === "send" ? (
-          <div className="space-y-4">
+          <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-4 space-y-4">
             <div>
               <label className="block text-sm mb-1">Message</label>
               <textarea
@@ -841,6 +854,7 @@ export default function Home() {
             </div>
           </div>
         ) : (
+
           <div className="space-y-3">
             {!walletConnected && (
               <p className="text-xs text-slate-400 text-center">
@@ -881,7 +895,7 @@ export default function Home() {
                   {inboxMessages.map((m) => (
                     <div
                       key={m.unit}
-                      className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs space-y-1"
+                      className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs space-y-1 hover:bg-slate-900 hover:border-sky-500 transition-colors"
                     >
                       {m.imageDataUri && (
                         <div className="mb-1">
@@ -905,15 +919,16 @@ export default function Home() {
                           </p>
                         )}
 
-                      <p className="text-slate-500 break-all">
-                        Asset: {m.policyId}.{m.assetName}
-                      </p>
-
-                      {m.fromAddress && (
-                        <p className="text-slate-500 break-all">
-                          From: {m.fromAddress}
+                        <p className="text-xs text-slate-500">
+                          Asset: {shortHash(`${m.policyId}.${m.assetName}`, 8, 6)}
                         </p>
-                      )}
+
+                        {m.fromAddress && (
+                          <p className="text-xs text-slate-500">
+                            From: {shortHash(m.fromAddress, 12, 6)}
+                          </p>
+                        )}
+
 
                       <div className="flex flex-wrap items-center gap-3 mt-1">
                         <a
@@ -964,12 +979,12 @@ export default function Home() {
         )}
 
         {/* Connect / send buttons */}
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
             onClick={walletConnected ? disconnectWallet : handleConnectClick}
-            className={`flex-1 rounded-2xl border px-3 py-2 text-sm font-medium ${
+            className={`w-full sm:flex-1 rounded-2xl border px-3 py-2 text-sm font-medium ${
               walletConnected
-                ? "border-red-400 text-red-300 hover:border-red-500"
+                ? "border-slate-500 text-slate-300 hover:border-slate-400"
                 : "border-slate-600 hover:border-sky-500 hover:text-sky-400"
             }`}
           >
@@ -980,16 +995,17 @@ export default function Home() {
             <button
               onClick={sendMessageAsNFT}
               disabled={loading}
-              className="flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
+              className="w-full sm:flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
             >
               {loading ? "Sending..." : "Send as NFT"}
             </button>
           )}
         </div>
 
+
         {/* Wallet address */}
         {walletAddress && (
-          <p className="text-xs text-emerald-400 text-center font-mono break-all">
+          <p className="text-xs text-slate-400 text-center font-mono break-all">
             Your address: {walletAddress}
           </p>
         )}
@@ -1052,6 +1068,10 @@ export default function Home() {
             </div>
           </details>
         </div>
+                <p className="text-[10px] text-slate-500 text-center mt-3">
+          matotam • on-chain messaging for Cardano • v0.1 beta
+        </p>
+
       </div>
     </main>
   );
