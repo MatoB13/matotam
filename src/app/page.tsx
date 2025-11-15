@@ -31,8 +31,12 @@ type MatotamMessage = {
   textPreview: string;
   createdAt?: string;
   fromAddress?: string;
+  toAddress?: string; // doplnené – uložíme si plnú recipient adresu
   imageDataUri?: string;
 };
+
+// jednoduchý cache pre /assets/{unit}
+const assetCache = new Map<string, any>();
 
 // ---------- helpers -------------------------------------------------
 
@@ -340,14 +344,13 @@ export default function Home() {
 
       setError(null);
       setInboxLoading(true);
-      setInboxMessages([]);
 
       const headers = { project_id: BLOCKFROST_KEY };
 
       let assets: any[] = [];
 
       // Pomocná funkcia: načítaj viac strán z daného endpointu
-      async function fetchAssetsPaged(baseUrl: string, maxPages = 10) {
+      async function fetchAssetsPaged(baseUrl: string, maxPages = 5) {
         const all: any[] = [];
         for (let page = 1; page <= maxPages; page++) {
           const url = `${baseUrl}?page=${page}&count=100`;
@@ -363,40 +366,59 @@ export default function Home() {
 
           all.push(...data);
 
-          // ak prišlo menej ako 100, ďalšia stránka už nebude
           if (data.length < 100) break;
         }
         return all;
       }
 
-      // 1) Primárne skúsime celý účet cez stake adresu (viac strán)
+      // 1) Primárne skúsime celý účet cez stake adresu
       if (stakeAddress) {
         assets = await fetchAssetsPaged(
           `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`
         );
       }
 
-      // 2) Fallback – ak nič, skúsime aspoň jednu adresu (tiež viac strán)
+      // 2) Fallback – ak nič, skúsime aspoň jednu adresu
       if (assets.length === 0 && walletAddress) {
         assets = await fetchAssetsPaged(
           `${BLOCKFROST_API}/addresses/${walletAddress}/assets`
         );
       }
 
+      // HARD LIMIT – ak má wallet extrémne veľa assetov → nepracujeme ďalej
+      const HARD_LIMIT = 300;
+      if (assets.length > HARD_LIMIT) {
+        setError(
+          `This wallet holds ${assets.length} assets – too many to scan. Use a clean address for your matotam inbox.`
+        );
+        setInboxMessages([]);
+        return;
+      }
+
+      // bezpečnostný limit – neskenuj nekonečný degen wallet
+      const MAX_ASSETS_TO_SCAN = 300;
+      const limitedAssets = assets.slice(0, MAX_ASSETS_TO_SCAN);
 
       const messages: MatotamMessage[] = [];
 
-      // 3) Pre každý asset stiahneme detail /assets/{unit}
-      for (const asset of assets) {
+      for (const asset of limitedAssets) {
         const unit: string = asset.unit;
         if (!unit) continue;
 
-        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
-          headers,
-        });
-        if (!assetResp.ok) continue;
+        // CACHE: ak už asset máme, nepýtame sa Blockfrost znova
+        let assetData: any;
+        if (assetCache.has(unit)) {
+          assetData = assetCache.get(unit);
+        } else {
+          const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+            headers,
+          });
+          if (!assetResp.ok) continue;
 
-        const assetData: any = await assetResp.json();
+          assetData = await assetResp.json();
+          assetCache.set(unit, assetData);
+        }
+
         const meta = assetData.onchain_metadata;
         if (!meta) continue;
 
@@ -434,6 +456,13 @@ export default function Home() {
           fromAddress = meta.fromShort;
         }
 
+        let toAddressFull: string | undefined;
+        if (Array.isArray(meta.toAddressSegments)) {
+          toAddressFull = (meta.toAddressSegments as any[])
+            .map(String)
+            .join("");
+        }
+
         let imageDataUri: string | undefined;
         if (Array.isArray(meta.image)) {
           imageDataUri = meta.image.map((s: any) => String(s)).join("");
@@ -450,6 +479,7 @@ export default function Home() {
           textPreview: preview,
           createdAt,
           fromAddress,
+          toAddress: toAddressFull,
           imageDataUri,
         });
       }
@@ -486,75 +516,50 @@ export default function Home() {
       const myAddr = await lucid.wallet.address();
       const myCred = lucid.utils.paymentCredentialOf(myAddr);
 
-      let policy: any = null;
-      let policyId: string = "";
-
-      // Pokus: nová 3-sig policy (sender OR recipient OR matotam) z metadata
-      try {
-        const headers = { project_id: BLOCKFROST_KEY };
-        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
-          headers,
-        });
-
-        if (assetResp.ok) {
-          const assetData: any = await assetResp.json();
-          const meta = assetData.onchain_metadata || {};
-
-          let fromAddrMeta: string | null = null;
-          let toAddrMeta: string | null = null;
-
-          if (Array.isArray(meta.fromAddressSegments)) {
-            fromAddrMeta = (meta.fromAddressSegments as any[])
-              .map(String)
-              .join("");
-          }
-          if (Array.isArray(meta.toAddressSegments)) {
-            toAddrMeta = (meta.toAddressSegments as any[])
-              .map(String)
-              .join("");
-          }
-
-          if (fromAddrMeta && toAddrMeta) {
-            const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
-            const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
-            const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
-
-            // Only sender, original recipient, or matotam can burn
-            if (
-              myCred.hash !== fromCred.hash &&
-              myCred.hash !== toCred.hash &&
-              myCred.hash !== matotamCred.hash
-            ) {
-              setError(
-                "Only the sender, the original recipient, or matotam can burn this message."
-              );
-              setBurningUnit(null);
-              return;
-            }
-
-            const policyJson = {
-              type: "any",
-              scripts: [
-                { type: "sig", keyHash: fromCred.hash },
-                { type: "sig", keyHash: toCred.hash },
-                { type: "sig", keyHash: matotamCred.hash },
-              ],
-            };
-
-            policy = lucid.utils.nativeScriptFromJson(policyJson);
-            policyId = lucid.utils.mintingPolicyToId(policy);
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to reconstruct 3-sig policy from metadata", e);
+      // nájdeme message v aktuálnom inboxe – už obsahuje from/to
+      const msg = inboxMessages.find((m) => m.unit === unit);
+      if (!msg) {
+        setError("Could not find this message in your inbox.");
+        setBurningUnit(null);
+        return;
       }
 
-      // Fallback: legacy single-sig policy (minter-only) pre staré testovacie NFT
-      if (!policy || !policyId) {
-        const policyJsonLegacy = { type: "sig", keyHash: myCred.hash };
-        policy = lucid.utils.nativeScriptFromJson(policyJsonLegacy);
-        policyId = lucid.utils.mintingPolicyToId(policy);
+      const fromAddrMeta = msg.fromAddress;
+      const toAddrMeta = msg.toAddress;
+
+      if (!fromAddrMeta || !toAddrMeta) {
+        setError("This message is missing required metadata to burn.");
+        setBurningUnit(null);
+        return;
       }
+
+      const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
+      const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
+      const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+      if (
+        myCred.hash !== fromCred.hash &&
+        myCred.hash !== toCred.hash &&
+        myCred.hash !== matotamCred.hash
+      ) {
+        setError(
+          "Only the sender, the original recipient, or matotam can burn this message."
+        );
+        setBurningUnit(null);
+        return;
+      }
+
+      const policyJson = {
+        type: "any",
+        scripts: [
+          { type: "sig", keyHash: fromCred.hash },
+          { type: "sig", keyHash: toCred.hash },
+          { type: "sig", keyHash: matotamCred.hash },
+        ],
+      };
+
+      const policy = lucid.utils.nativeScriptFromJson(policyJson);
+      const policyId = lucid.utils.mintingPolicyToId(policy);
 
       if (!unit.startsWith(policyId)) {
         setError(
@@ -685,7 +690,7 @@ export default function Home() {
 
       const rawMetadata721 = {
         [policyId]: {
-          [ `matotam-${safeMessage.slice(0, 12) || "msg"}` ]: {
+          [`matotam-${safeMessage.slice(0, 12) || "msg"}`]: {
             name: `matotam-${safeMessage.slice(0, 12) || "msg"}`,
             description,
             messagePreview,
@@ -761,7 +766,10 @@ export default function Home() {
               onClick={() => {
                 setActiveTab("inbox");
                 setTxHash(null);
-                if (walletConnected) loadInbox();
+                // 🔑 automatický load len keď ešte nič nemáme
+                if (walletConnected && inboxMessages.length === 0) {
+                  loadInbox();
+                }
               }}
               className={`px-3 py-1 rounded-2xl border ${
                 activeTab === "inbox"
@@ -909,11 +917,11 @@ export default function Home() {
 
                       <div className="flex flex-wrap items-center gap-3 mt-1">
                         <a
-                              href={
-                                      m.fingerprint
-                                        ? `https://pool.pm/${m.fingerprint}`
-                                        : `https://pool.pm/${m.unit}`
-                                    }
+                          href={
+                            m.fingerprint
+                              ? `https://pool.pm/${m.fingerprint}`
+                              : `https://pool.pm/${m.unit}`
+                          }
                           target="_blank"
                           rel="noreferrer"
                           className="inline-block text-sky-400 hover:text-sky-300"
@@ -1000,7 +1008,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* How it works */}
         {/* Info dropdowns */}
         <div className="mt-4 border-t border-slate-800 pt-4 text-[11px] text-slate-400 space-y-2">
           <details className="rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-2">
@@ -1022,7 +1029,7 @@ export default function Home() {
                 or the matotam service address to reclaim most of the ADA locked inside.
               </p>
             </div>
-          </details> 
+          </details>
 
           <details className="rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-2">
             <summary className="cursor-pointer font-semibold text-slate-200 list-none">
@@ -1042,11 +1049,9 @@ export default function Home() {
                 locked in a message NFT can be reclaimed later by burning it from either
                 the sender’s or the recipient’s wallet.
               </p>
-
             </div>
           </details>
         </div>
-
       </div>
     </main>
   );
