@@ -31,7 +31,7 @@ type MatotamMessage = {
   textPreview: string;
   createdAt?: string;
   fromAddress?: string;
-  toAddress?: string; // doplnené – uložíme si plnú recipient adresu
+  toAddress?: string;
   imageDataUri?: string;
 };
 
@@ -225,6 +225,46 @@ function shortHash(value: string, start = 10, end = 6): string {
   return `${value.slice(0, start)}...${value.slice(-end)}`;
 }
 
+// pomocná funkcia pre Quick Burn – z inputu (asset ID / link) spraví unit
+async function parseAssetInputToUnit(rawInput: string): Promise<string | null> {
+  const raw = rawInput.trim();
+  if (!raw) return null;
+
+  let id = raw;
+
+  // ak je to URL (napr. pool.pm), vezmeme posledný segment za '/'
+  if (id.startsWith("http://") || id.startsWith("https://")) {
+    const parts = id.split("/");
+    id = parts[parts.length - 1] || "";
+  }
+
+  if (!id) return null;
+
+  // ak obsahuje bodku → policyId.assetName alebo policyId.assetNameHex
+  if (id.includes(".")) {
+    const [policyPart, assetPartRaw] = id.split(".");
+    if (!policyPart || !assetPartRaw) return null;
+
+    let assetPartHex = assetPartRaw;
+
+    // ak assetPart nie je čistý hex, považujeme ho za ASCII a skonvertujeme
+    if (!/^[0-9a-fA-F]+$/.test(assetPartRaw)) {
+      const { toHex } = await import("lucid-cardano");
+      const bytes = new TextEncoder().encode(assetPartRaw);
+      assetPartHex = toHex(bytes);
+    }
+
+    return policyPart + assetPartHex;
+  }
+
+  // inak predpokladáme, že ide o unit (hex)
+  if (/^[0-9a-fA-F]+$/.test(id)) {
+    return id;
+  }
+
+  // nevieme rozpoznať
+  return null;
+}
 
 // ---------- COMPONENT ------------------------------------------------
 
@@ -240,10 +280,13 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"send" | "inbox">("send");
+  const [activeTab, setActiveTab] = useState<"send" | "inbox" | "burn">("send");
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxMessages, setInboxMessages] = useState<MatotamMessage[]>([]);
   const [burningUnit, setBurningUnit] = useState<string | null>(null);
+
+  const [quickBurnInput, setQuickBurnInput] = useState("");
+  const [quickBurnLoading, setQuickBurnLoading] = useState(false);
 
   // ---------- wallet connect / disconnect -----------------------------
 
@@ -356,10 +399,17 @@ export default function Home() {
 
       let assets: any[] = [];
 
-      // Pomocná funkcia: načítaj viac strán z daného endpointu
-      async function fetchAssetsPaged(baseUrl: string, maxPages = 5) {
+      const MAX_ASSETS_TO_SCAN = 100;
+
+      // Pomocná funkcia: načítaj viac strán z daného endpointu, ale max ~100 assetov
+      async function fetchAssetsPaged(
+        baseUrl: string,
+        maxPages = 5,
+        maxTotal = MAX_ASSETS_TO_SCAN + 1
+      ) {
         const all: any[] = [];
         for (let page = 1; page <= maxPages; page++) {
+          if (all.length >= maxTotal) break;
           const url = `${baseUrl}?page=${page}&count=100`;
           const resp = await fetch(url, { headers });
 
@@ -392,18 +442,18 @@ export default function Home() {
         );
       }
 
-      // HARD LIMIT – ak má wallet extrémne veľa assetov → nepracujeme ďalej
-      const HARD_LIMIT = 300;
-      if (assets.length > HARD_LIMIT) {
-        setError(
-          `This wallet holds ${assets.length} assets – too many to scan. Use a clean address for your matotam inbox.`
-        );
+      if (assets.length === 0) {
         setInboxMessages([]);
         return;
       }
 
-      // bezpečnostný limit – neskenuj nekonečný degen wallet
-      const MAX_ASSETS_TO_SCAN = 300;
+      // ak je assetov viac než MAX, upozorníme na Quick Burn a zoberieme len prvých 100
+      if (assets.length > MAX_ASSETS_TO_SCAN) {
+        setError(
+          `This wallet holds ${assets.length} assets. Inbox only scans the first ${MAX_ASSETS_TO_SCAN}. For busy wallets, use the Quick Burn tab to burn a specific matotam message by Asset ID or pool.pm link.`
+        );
+      }
+
       const limitedAssets = assets.slice(0, MAX_ASSETS_TO_SCAN);
 
       const messages: MatotamMessage[] = [];
@@ -500,7 +550,7 @@ export default function Home() {
     }
   }
 
-  // ---------- burn ---------------------------------------------------
+  // ---------- burn z inboxu -------------------------------------------
 
   async function burnMessage(unit: string) {
     try {
@@ -608,6 +658,155 @@ export default function Home() {
     }
   }
 
+  // ---------- Quick Burn (unit / pool.pm link) ------------------------
+
+  async function quickBurn() {
+    try {
+      if (!walletConnected || !walletAddress) {
+        setError("Connect your wallet first.");
+        return;
+      }
+      if (!quickBurnInput.trim()) {
+        setError("Paste an Asset ID or pool.pm link first.");
+        return;
+      }
+      if (!BLOCKFROST_KEY) {
+        setError("Blockfrost key is not configured.");
+        return;
+      }
+
+      setError(null);
+      setTxHash(null);
+      setQuickBurnLoading(true);
+
+      const unit = await parseAssetInputToUnit(quickBurnInput);
+      if (!unit) {
+        setError("Invalid Asset ID or link. Please check the input.");
+        return;
+      }
+
+      const anyWindow = window as any;
+      const lucid = anyWindow.lucid;
+      if (!lucid) {
+        setError("Lucid is not initialized. Try reconnecting your wallet.");
+        return;
+      }
+
+      const headers = { project_id: BLOCKFROST_KEY };
+
+      let assetData: any;
+      if (assetCache.has(unit)) {
+        assetData = assetCache.get(unit);
+      } else {
+        const assetResp = await fetch(`${BLOCKFROST_API}/assets/${unit}`, {
+          headers,
+        });
+        if (!assetResp.ok) {
+          setError("Could not load this asset from Blockfrost.");
+          return;
+        }
+        assetData = await assetResp.json();
+        assetCache.set(unit, assetData);
+      }
+
+      const meta = assetData.onchain_metadata || {};
+      const name = String(meta.name ?? "");
+      const desc = String(meta.description ?? meta.Description ?? "");
+      const source = String(meta.source ?? meta.Source ?? "");
+
+      const isMatotam =
+        source.toLowerCase().includes("matotam.io") ||
+        name.toLowerCase().includes("matotam") ||
+        desc.toLowerCase().includes("matotam");
+
+      if (!isMatotam) {
+        setError("This NFT does not look like a matotam message.");
+        return;
+      }
+
+      let fromAddrMeta: string | null = null;
+      let toAddrMeta: string | null = null;
+
+      if (Array.isArray(meta.fromAddressSegments)) {
+        fromAddrMeta = (meta.fromAddressSegments as any[]).map(String).join("");
+      }
+      if (Array.isArray(meta.toAddressSegments)) {
+        toAddrMeta = (meta.toAddressSegments as any[]).map(String).join("");
+      }
+
+      if (!fromAddrMeta || !toAddrMeta) {
+        setError("This message is missing required metadata to burn.");
+        return;
+      }
+
+      const myAddr = await lucid.wallet.address();
+      const myCred = lucid.utils.paymentCredentialOf(myAddr);
+
+      const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
+      const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
+      const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
+
+      if (
+        myCred.hash !== fromCred.hash &&
+        myCred.hash !== toCred.hash &&
+        myCred.hash !== matotamCred.hash
+      ) {
+        setError(
+          "Only the sender, the original recipient, or matotam can burn this message."
+        );
+        return;
+      }
+
+      const policyJson = {
+        type: "any",
+        scripts: [
+          { type: "sig", keyHash: fromCred.hash },
+          { type: "sig", keyHash: toCred.hash },
+          { type: "sig", keyHash: matotamCred.hash },
+        ],
+      };
+
+      const policy = lucid.utils.nativeScriptFromJson(policyJson);
+      const policyId = lucid.utils.mintingPolicyToId(policy);
+
+      if (!unit.startsWith(policyId)) {
+        setError(
+          "This message was minted with a different policy and cannot be burned from this wallet."
+        );
+        return;
+      }
+
+      const utxos = await lucid.utxosAt(walletAddress);
+      const target = utxos.find((u: any) => {
+        const qty = u.assets?.[unit];
+        return typeof qty === "bigint" && qty > 0n;
+      });
+
+      if (!target) {
+        setError("Could not find this NFT in your UTxOs.");
+        return;
+      }
+
+      const tx = await lucid
+        .newTx()
+        .collectFrom([target])
+        .mintAssets({ [unit]: -1n })
+        .attachMintingPolicy(policy)
+        .complete();
+
+      const signed = await tx.sign().complete();
+      const hash = await signed.submit();
+
+      setTxHash(hash);
+      setQuickBurnInput("");
+    } catch (e) {
+      console.error(e);
+      setError("Failed to burn message.");
+    } finally {
+      setQuickBurnLoading(false);
+    }
+  }
+
   // ---------- send NFT ------------------------------------------------
 
   async function sendMessageAsNFT() {
@@ -686,6 +885,8 @@ export default function Home() {
       const fromAddressSegments = splitIntoSegments(senderAddr, 64);
       const toAddressSegments = splitIntoSegments(recipientAddress, 64);
 
+      const policyLabel = `tam from ${fromShort}`;
+
       // SVG bubble + image data URI, rozkúskované na 64-znakové segmenty
       const bubbleLines = wrapMessageForBubble(safeMessage);
       const svg = buildBubbleSvg(bubbleLines);
@@ -695,10 +896,12 @@ export default function Home() {
       const shortenedDataUri = dataUri.slice(0, MAX_IMAGE_CHARS);
       const imageChunks = splitIntoSegments(shortenedDataUri, 64);
 
+      const assetNameBase = `matotam-${safeMessage.slice(0, 12) || "msg"}`;
+
       const rawMetadata721 = {
         [policyId]: {
-          [`matotam-${safeMessage.slice(0, 12) || "msg"}`]: {
-            name: `matotam-${safeMessage.slice(0, 12) || "msg"}`,
+          [assetNameBase]: {
+            name: assetNameBase,
             description,
             messagePreview,
             messageSegments,
@@ -709,6 +912,7 @@ export default function Home() {
             fromAddressSegments,
             toAddressSegments,
             source: "https://matotam.io",
+            policyLabel,
           },
         },
       };
@@ -758,7 +962,6 @@ export default function Home() {
             <div className="h-9 w-29 rounded-full border border-sky-500 bg-sky-500/10 flex items-center justify-center text-[20px] font-semibold lowercase tracking-wide text-sky-300">
               matotam
             </div>
-
           </div>
 
           {/* Tagline */}
@@ -774,6 +977,7 @@ export default function Home() {
               onClick={() => {
                 setActiveTab("send");
                 setTxHash(null);
+                setError(null);
               }}
               className={`px-4 py-1 rounded-full transition ${
                 activeTab === "send"
@@ -800,9 +1004,23 @@ export default function Home() {
             >
               Inbox
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("burn");
+                setTxHash(null);
+                setError(null);
+              }}
+              className={`px-4 py-1 rounded-full transition ${
+                activeTab === "burn"
+                  ? "bg-sky-500 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-sky-300"
+              }`}
+            >
+              Quick Burn
+            </button>
           </div>
         </div>
-
 
         {/* Wallet picker */}
         {showWalletPicker && availableWallets.length > 1 && (
@@ -824,7 +1042,7 @@ export default function Home() {
         )}
 
         {/* Main content */}
-        {activeTab === "send" ? (
+        {activeTab === "send" && (
           <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-4 space-y-4">
             <div>
               <label className="block text-sm mb-1">Message</label>
@@ -853,8 +1071,9 @@ export default function Home() {
               />
             </div>
           </div>
-        ) : (
+        )}
 
+        {activeTab === "inbox" && (
           <div className="space-y-3">
             {!walletConnected && (
               <p className="text-xs text-slate-400 text-center">
@@ -919,16 +1138,15 @@ export default function Home() {
                           </p>
                         )}
 
+                      <p className="text-xs text-slate-500">
+                        Asset: {shortHash(`${m.policyId}.${m.assetName}`, 8, 6)}
+                      </p>
+
+                      {m.fromAddress && (
                         <p className="text-xs text-slate-500">
-                          Asset: {shortHash(`${m.policyId}.${m.assetName}`, 8, 6)}
+                          From: {shortHash(m.fromAddress, 12, 6)}
                         </p>
-
-                        {m.fromAddress && (
-                          <p className="text-xs text-slate-500">
-                            From: {shortHash(m.fromAddress, 12, 6)}
-                          </p>
-                        )}
-
+                      )}
 
                       <div className="flex flex-wrap items-center gap-3 mt-1">
                         <a
@@ -978,6 +1196,56 @@ export default function Home() {
           </div>
         )}
 
+        {activeTab === "burn" && (
+          <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-4 space-y-3 text-xs sm:text-sm text-slate-300">
+            <div>
+              <p className="font-semibold text-slate-100 mb-1">Quick Burn</p>
+              <p className="text-slate-400">
+                Burn a specific matotam message NFT and reclaim the ADA locked
+                inside. Ideal for wallets with many NFTs (for example &gt;100
+                assets).
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-sm mb-1">
+                Asset ID or pool.pm link
+              </label>
+              <input
+                className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                value={quickBurnInput}
+                onChange={(e) => setQuickBurnInput(e.target.value)}
+                placeholder="paste Asset ID or https://pool.pm/..."
+              />
+              <p className="text-[11px] text-slate-500">
+                You can paste:
+                <br />• the{" "}
+                <span className="font-semibold text-slate-300">Asset ID</span>{" "}
+                from your wallet (policyId.assetName or full hex), or
+                <br />• the{" "}
+                <span className="font-semibold text-slate-300">
+                  pool.pm link
+                </span>{" "}
+                to this NFT — we’ll extract the ID automatically.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={quickBurn}
+              disabled={quickBurnLoading}
+              className="w-full rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60 flex items-center justify-center gap-1"
+            >
+              {quickBurnLoading ? "Burning…" : "🔥 Burn & reclaim ADA"}
+            </button>
+
+            <p className="text-[11px] text-slate-500">
+              Burning permanently destroys the NFT — this action cannot be
+              undone.
+            </p>
+          </div>
+        )}
+
         {/* Connect / send buttons */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
@@ -1001,7 +1269,6 @@ export default function Home() {
             </button>
           )}
         </div>
-
 
         {/* Wallet address */}
         {walletAddress && (
@@ -1033,16 +1300,18 @@ export default function Home() {
             <div className="mt-2 space-y-1 text-[11px] text-slate-400">
               <p>① You write a short message (up to 256 characters).</p>
               <p>
-                ② Your wallet signs a transaction that mints a tiny NFT containing
-                your message as text plus a small on-chain SVG bubble image.
+                ② Your wallet signs a transaction that mints a tiny NFT
+                containing your message as text plus a small on-chain SVG bubble
+                image.
               </p>
               <p>
-                ③ The NFT is sent to the recipient’s Cardano address (or ADA Handle)
-                and appears in their wallet or on pool.pm.
+                ③ The NFT is sent to the recipient’s Cardano address (or ADA
+                Handle) and appears in their wallet or on pool.pm.
               </p>
               <p>
-                ④ This message NFT can later be burned by the sender, the recipient,
-                or the matotam service address to reclaim most of the ADA locked inside.
+                ④ This message NFT can later be burned by the sender, the
+                recipient, or the matotam service address to reclaim most of the
+                ADA locked inside.
               </p>
             </div>
           </details>
@@ -1057,21 +1326,22 @@ export default function Home() {
                 please avoid sharing sensitive information.
               </p>
               <p>
-                The developer fee corresponds to Cardano’s minimum UTxO requirement,
-                which is approximately 1 ADA.
+                The developer fee corresponds to Cardano’s minimum UTxO
+                requirement, which is approximately 1 ADA.
               </p>
               <p>
-                The remaining cost covers Cardano network and minting fees. Most of the ADA
-                locked in a message NFT can be reclaimed later by burning it from either
-                the sender’s or the recipient’s wallet.
+                The remaining cost covers Cardano network and minting fees.
+                Most of the ADA locked in a message NFT can be reclaimed later
+                by burning it from either the sender’s or the recipient’s
+                wallet.
               </p>
             </div>
           </details>
         </div>
-                <p className="text-[10px] text-slate-500 text-center mt-3">
+
+        <p className="text-[10px] text-slate-500 text-center mt-3">
           matotam • on-chain messaging for Cardano • v0.1 beta
         </p>
-
       </div>
     </main>
   );
