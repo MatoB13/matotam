@@ -225,10 +225,13 @@ function shortHash(value: string, start = 10, end = 6): string {
   return `${value.slice(0, start)}...${value.slice(-end)}`;
 }
 
-// pomocná funkcia pre Quick Burn – z inputu (asset ID / link) spraví unit
-async function parseAssetInputToUnit(rawInput: string): Promise<string | null> {
+// helper na parsovanie Quick Burn inputu
+function parseQuickBurnInput(rawInput: string): {
+  unit: string | null;
+  fingerprintLike: boolean;
+} {
   const raw = rawInput.trim();
-  if (!raw) return null;
+  if (!raw) return { unit: null, fingerprintLike: false };
 
   let id = raw;
 
@@ -238,32 +241,19 @@ async function parseAssetInputToUnit(rawInput: string): Promise<string | null> {
     id = parts[parts.length - 1] || "";
   }
 
-  if (!id) return null;
+  if (!id) return { unit: null, fingerprintLike: false };
 
-  // ak obsahuje bodku → policyId.assetName alebo policyId.assetNameHex
-  if (id.includes(".")) {
-    const [policyPart, assetPartRaw] = id.split(".");
-    if (!policyPart || !assetPartRaw) return null;
-
-    let assetPartHex = assetPartRaw;
-
-    // ak assetPart nie je čistý hex, považujeme ho za ASCII a skonvertujeme
-    if (!/^[0-9a-fA-F]+$/.test(assetPartRaw)) {
-      const { toHex } = await import("lucid-cardano");
-      const bytes = new TextEncoder().encode(assetPartRaw);
-      assetPartHex = toHex(bytes);
-    }
-
-    return policyPart + assetPartHex;
+  // fingerprint asset1...
+  if (/^asset1[0-9a-z]+$/i.test(id)) {
+    return { unit: null, fingerprintLike: true };
   }
 
-  // inak predpokladáme, že ide o unit (hex)
+  // Quick Burn ID = čistý hex (unit)
   if (/^[0-9a-fA-F]+$/.test(id)) {
-    return id;
+    return { unit: id, fingerprintLike: false };
   }
 
-  // nevieme rozpoznať
-  return null;
+  return { unit: null, fingerprintLike: false };
 }
 
 // ---------- COMPONENT ------------------------------------------------
@@ -399,66 +389,49 @@ export default function Home() {
 
       let assets: any[] = [];
 
-      const MAX_ASSETS_TO_SCAN = 100;
-
-      // Pomocná funkcia: načítaj viac strán z daného endpointu, ale max ~100 assetov
-      async function fetchAssetsPaged(
-        baseUrl: string,
-        maxPages = 5,
-        maxTotal = MAX_ASSETS_TO_SCAN + 1
-      ) {
-        const all: any[] = [];
-        for (let page = 1; page <= maxPages; page++) {
-          if (all.length >= maxTotal) break;
-          const url = `${baseUrl}?page=${page}&count=100`;
-          const resp = await fetch(url, { headers });
-
-          if (!resp.ok) {
-            console.warn("Failed to load assets page", page, "status:", resp.status);
-            break;
-          }
-
-          const data: any[] = await resp.json();
-          if (!Array.isArray(data) || data.length === 0) break;
-
-          all.push(...data);
-
-          if (data.length < 100) break;
-        }
-        return all;
-      }
-
-      // 1) Primárne skúsime celý účet cez stake adresu
+      // 1) Skúsime stake účet – prvá stránka, max 100 assetov
       if (stakeAddress) {
-        assets = await fetchAssetsPaged(
-          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets`
+        const resp = await fetch(
+          `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets?page=1&count=100`,
+          { headers }
         );
+        if (resp.ok) {
+          assets = await resp.json();
+        } else {
+          console.warn("Failed to load assets by stake, status:", resp.status);
+        }
       }
 
-      // 2) Fallback – ak nič, skúsime aspoň jednu adresu
+      // 2) Fallback – jedna adresa
       if (assets.length === 0 && walletAddress) {
-        assets = await fetchAssetsPaged(
-          `${BLOCKFROST_API}/addresses/${walletAddress}/assets`
+        const resp = await fetch(
+          `${BLOCKFROST_API}/addresses/${walletAddress}/assets?page=1&count=100`,
+          { headers }
         );
+        if (resp.ok) {
+          assets = await resp.json();
+        } else {
+          console.warn("Failed to load assets by address, status:", resp.status);
+        }
       }
 
-      if (assets.length === 0) {
+      if (!Array.isArray(assets) || assets.length === 0) {
         setInboxMessages([]);
         return;
       }
 
-      // ak je assetov viac než MAX, upozorníme na Quick Burn a zoberieme len prvých 100
-      if (assets.length > MAX_ASSETS_TO_SCAN) {
+      // 3) Ak prvá stránka vrátila presne 100 assetov, považujeme wallet za „veľkú“
+      if (assets.length === 100) {
+        setInboxMessages([]);
         setError(
-          `This wallet holds ${assets.length} assets. Inbox only scans the first ${MAX_ASSETS_TO_SCAN}. For busy wallets, use the Quick Burn tab to burn a specific matotam message by Asset ID or pool.pm link.`
+          "This wallet holds a large number of tokens. The inbox only supports wallets with up to 100 assets. Please use your wallet or pool.pm to view matotam NFTs and use the Quick Burn tab to burn a specific message."
         );
+        return;
       }
-
-      const limitedAssets = assets.slice(0, MAX_ASSETS_TO_SCAN);
 
       const messages: MatotamMessage[] = [];
 
-      for (const asset of limitedAssets) {
+      for (const asset of assets) {
         const unit: string = asset.unit;
         if (!unit) continue;
 
@@ -506,18 +479,12 @@ export default function Home() {
 
         let fromAddress: string | undefined;
         if (Array.isArray(meta.fromAddressSegments)) {
-          fromAddress = (meta.fromAddressSegments as any[])
-            .map(String)
-            .join("");
-        } else if (typeof meta.fromShort === "string") {
-          fromAddress = meta.fromShort;
+          fromAddress = (meta.fromAddressSegments as any[]).map(String).join("");
         }
 
         let toAddressFull: string | undefined;
         if (Array.isArray(meta.toAddressSegments)) {
-          toAddressFull = (meta.toAddressSegments as any[])
-            .map(String)
-            .join("");
+          toAddressFull = (meta.toAddressSegments as any[]).map(String).join("");
         }
 
         let imageDataUri: string | undefined;
@@ -570,10 +537,6 @@ export default function Home() {
         return;
       }
 
-      const myAddr = await lucid.wallet.address();
-      const myCred = lucid.utils.paymentCredentialOf(myAddr);
-
-      // nájdeme message v aktuálnom inboxe – už obsahuje from/to
       const msg = inboxMessages.find((m) => m.unit === unit);
       if (!msg) {
         setError("Could not find this message in your inbox.");
@@ -590,6 +553,8 @@ export default function Home() {
         return;
       }
 
+      const myAddr = await lucid.wallet.address();
+      const myCred = lucid.utils.paymentCredentialOf(myAddr);
       const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
       const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
       const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
@@ -600,7 +565,7 @@ export default function Home() {
         myCred.hash !== matotamCred.hash
       ) {
         setError(
-          "Only the sender, the original recipient, or matotam can burn this message."
+          "Only the original sender, the original recipient, or matotam can burn this message."
         );
         setBurningUnit(null);
         return;
@@ -658,7 +623,7 @@ export default function Home() {
     }
   }
 
-  // ---------- Quick Burn (unit / pool.pm link) ------------------------
+  // ---------- Quick Burn (Quick Burn ID / unit) -----------------------
 
   async function quickBurn() {
     try {
@@ -667,7 +632,7 @@ export default function Home() {
         return;
       }
       if (!quickBurnInput.trim()) {
-        setError("Paste an Asset ID or pool.pm link first.");
+        setError("Paste a Quick Burn ID first.");
         return;
       }
       if (!BLOCKFROST_KEY) {
@@ -679,9 +644,15 @@ export default function Home() {
       setTxHash(null);
       setQuickBurnLoading(true);
 
-      const unit = await parseAssetInputToUnit(quickBurnInput);
+      const { unit, fingerprintLike } = parseQuickBurnInput(quickBurnInput);
       if (!unit) {
-        setError("Invalid Asset ID or link. Please check the input.");
+        if (fingerprintLike) {
+          setError(
+            "This looks like a fingerprint (asset1...). Please open the NFT in your wallet or on pool.pm, find the quickBurnId field in the metadata and paste that value here."
+          );
+        } else {
+          setError("Invalid Quick Burn ID. Please check the input.");
+        }
         return;
       }
 
@@ -752,7 +723,7 @@ export default function Home() {
         myCred.hash !== matotamCred.hash
       ) {
         setError(
-          "Only the sender, the original recipient, or matotam can burn this message."
+          "Only the original sender, the original recipient, or matotam can burn this message."
         );
         return;
       }
@@ -897,6 +868,9 @@ export default function Home() {
       const imageChunks = splitIntoSegments(shortenedDataUri, 64);
 
       const assetNameBase = `matotam-${safeMessage.slice(0, 12) || "msg"}`;
+      const assetNameBytes = new TextEncoder().encode(assetNameBase);
+      const assetNameHex = toHex(assetNameBytes);
+      const unit = policyId + assetNameHex;
 
       const rawMetadata721 = {
         [policyId]: {
@@ -913,16 +887,12 @@ export default function Home() {
             toAddressSegments,
             source: "https://matotam.io",
             policyLabel,
+            quickBurnId: unit,
           },
         },
       };
 
       const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
-
-      const assetName = Object.keys(rawMetadata721[policyId])[0];
-      const assetNameBytes = new TextEncoder().encode(assetName);
-      const assetNameHex = toHex(assetNameBytes);
-      const unit = policyId + assetNameHex;
 
       const tx = await lucid
         .newTx()
@@ -959,7 +929,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-3 mb-2">
           {/* Logo + name */}
           <div className="flex items-center gap-3">
-            <div className="h-9 w-29 rounded-full border border-sky-500 bg-sky-500/10 flex items-center justify-center text-[20px] font-semibold lowercase tracking-wide text-sky-300">
+            <div className="h-9 px-5 rounded-full border border-sky-500 bg-sky-500/10 flex items-center justify-center text-[20px] font-semibold lowercase tracking-wide text-sky-300">
               matotam
             </div>
           </div>
@@ -992,7 +962,7 @@ export default function Home() {
               onClick={() => {
                 setActiveTab("inbox");
                 setTxHash(null);
-                if (walletConnected && inboxMessages.length === 0) {
+                if (walletConnected && !inboxLoading) {
                   loadInbox();
                 }
               }}
@@ -1083,7 +1053,16 @@ export default function Home() {
 
             {walletConnected && (
               <>
-                <div className="flex items-center justify-between text-xs text-slate-400">
+                <p className="text-[11px] text-slate-500">
+                  Note: The inbox scans up to <span className="font-semibold">100 assets</span>{" "}
+                  per wallet. For larger wallets, please use your wallet or pool.pm to
+                  browse your matotam NFTs and the{" "}
+                  <span className="font-semibold">Quick Burn</span> tab on matotam.io
+                  to burn a message. Burn is only possible from the original sender
+                  or the original recipient of the message.
+                </p>
+
+                <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
                   <span>Your inbox</span>
                   <button
                     type="button"
@@ -1104,7 +1083,7 @@ export default function Home() {
                   </p>
                 )}
 
-                {!inboxLoading && inboxMessages.length === 0 && (
+                {!inboxLoading && inboxMessages.length === 0 && !error && (
                   <p className="text-xs text-slate-500 text-center">
                     No matotam messages found for this address yet.
                   </p>
@@ -1139,7 +1118,8 @@ export default function Home() {
                         )}
 
                       <p className="text-xs text-slate-500">
-                        Asset: {shortHash(`${m.policyId}.${m.assetName}`, 8, 6)}
+                        Asset:{" "}
+                        {shortHash(`${m.policyId}.${m.assetName}`, 8, 6)}
                       </p>
 
                       {m.fromAddress && (
@@ -1202,31 +1182,25 @@ export default function Home() {
               <p className="font-semibold text-slate-100 mb-1">Quick Burn</p>
               <p className="text-slate-400">
                 Burn a specific matotam message NFT and reclaim the ADA locked
-                inside. Ideal for wallets with many NFTs (for example &gt;100
-                assets).
+                inside. Ideal for wallets with many NFTs. Burn is only possible
+                from the original sender or the original recipient of the
+                message (or the matotam service address).
               </p>
             </div>
 
             <div className="space-y-1">
-              <label className="block text-sm mb-1">
-                Asset ID or pool.pm link
-              </label>
+              <label className="block text-sm mb-1">Quick Burn ID</label>
               <input
                 className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 value={quickBurnInput}
                 onChange={(e) => setQuickBurnInput(e.target.value)}
-                placeholder="paste Asset ID or https://pool.pm/..."
+                placeholder="paste quickBurnId (unit hex)..."
               />
               <p className="text-[11px] text-slate-500">
-                You can paste:
-                <br />• the{" "}
-                <span className="font-semibold text-slate-300">Asset ID</span>{" "}
-                from your wallet (policyId.assetName or full hex), or
-                <br />• the{" "}
-                <span className="font-semibold text-slate-300">
-                  pool.pm link
-                </span>{" "}
-                to this NFT — we’ll extract the ID automatically.
+                You can find your <span className="font-semibold">quickBurnId</span>{" "}
+                in the NFT metadata (field <code>quickBurnId</code>) in your
+                wallet or on pool.pm. Copy that value and paste it here to burn
+                the message and reclaim ADA.
               </p>
             </div>
 
@@ -1309,9 +1283,9 @@ export default function Home() {
                 Handle) and appears in their wallet or on pool.pm.
               </p>
               <p>
-                ④ This message NFT can later be burned by the sender, the
-                recipient, or the matotam service address to reclaim most of the
-                ADA locked inside.
+                ④ This message NFT can later be burned by the original sender,
+                the original recipient, or the matotam service address to
+                reclaim most of the ADA locked inside.
               </p>
             </div>
           </details>
