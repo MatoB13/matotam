@@ -1046,24 +1046,6 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
           </div>
         </div>
 
-        {/* Wallet picker */}
-        {showWalletPicker && availableWallets.length > 1 && (
-          <div className="rounded-2xl bg-slate-950 border border-slate-700 px-3 py-3 text-sm space-y-2">
-            <p className="text-xs text-slate-400">Choose a wallet to connect:</p>
-            <div className="flex flex-wrap gap-2">
-              {availableWallets.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => connectWithWallet(id)}
-                  className="px-3 py-1 rounded-2xl border border-slate-600 text-xs hover:border-sky-500 hover:text-sky-400"
-                >
-                  {WALLET_LABELS[id] ?? id}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Main content */}
         {activeTab === "send" && (
@@ -1230,73 +1212,115 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
           </div>
         )}
 
-        {activeTab === "burn" && (
-          <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-4 space-y-3 text-xs sm:text-sm text-slate-300">
-            <div>
-              <p className="font-semibold text-slate-100 mb-1">Quick Burn</p>
-              <p className="text-slate-400">
-                Burn a specific matotam message NFT and reclaim the ADA locked
-                inside. Ideal for wallets with many NFTs. Burn is only possible
-                from the original sender or the original recipient of the
-                message (or the matotam service address).
-              </p>
-            </div>
+{activeTab === "burn" && (
+  <div className="space-y-4">
+    {/* Nadpis + krátky popis */}
+    <div className="space-y-1">
+      <h2 className="text-base font-semibold text-slate-200">Quick Burn</h2>
+      <p className="text-xs text-slate-400">
+        Quickly burn any matotam message NFT and reclaim the ADA inside.
+      </p>
+    </div>
 
-            <div className="space-y-1">
-              <label className="block text-sm mb-1">Quick Burn ID</label>
-              <input
-                className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                value={quickBurnInput}
-                onChange={(e) => setQuickBurnInput(e.target.value)}
-                placeholder="paste quickBurnId from NFT metadata..."
-              />
-              <p className="text-[11px] text-slate-500">
-                You can find your <span className="font-semibold">Quick Burn ID</span> in the
-                NFT metadata (field <code>quickBurnId</code>) in your wallet or on pool.pm.
-                Burn is only possible from the original sender or the original recipient of
-                the message.
-              </p>
-            </div>
+    {/* Quick Burn ID input */}
+    <div className="space-y-1">
+      <input
+        className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+        placeholder="paste Quick Burn ID from NFT metadata..."
+        value={quickBurnInput}
+        onChange={(e) => setQuickBurnInput(e.target.value)}
+      />
+      <p className="text-[11px] text-slate-500">
+        You can find your <span className="font-semibold">Quick Burn ID</span>{" "}
+        in the NFT metadata (field <code>quickBurnId</code>) in your wallet or
+        on pool.pm. Copy that value and paste it here.
+      </p>
+    </div>
 
+    {/* Burn button + warning */}
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={quickBurn}
+        disabled={quickBurnLoading || !walletConnected}
+        className="w-full rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60 flex items-center justify-center gap-2"
+      >
+        {quickBurnLoading ? "Burning…" : "🔥 Burn & reclaim ADA"}
+      </button>
+      <p className="text-[11px] text-slate-500">
+        Burning permanently destroys the NFT — this action cannot be undone.
+      </p>
+    </div>
+
+    {/* Requirements box */}
+    <div className="rounded-2xl bg-slate-950/60 border border-slate-700 px-4 py-3 text-[11px] text-slate-400 space-y-1">
+      <p className="font-xs text-slate-200">Requirements</p>
+      <p>
+        Burn is only possible from the{" "}
+        <span className="font-semibold">original sender</span>, the{" "}
+        <span className="font-semibold">original recipient</span>, or the{" "}
+        <span className="font-semibold">matotam service address</span>.
+      </p>
+    </div>
+
+  </div>
+)}
+
+
+{/* Connect / send buttons */}
+<div className="flex items-center justify-between gap-3">
+  {/* Ľavá strana: connect / wallet picker */}
+  <div className="flex-1">
+    {walletConnected ? (
+      // už pripojený – len Disconnect
+      <button
+        onClick={disconnectWallet}
+        className="w-full rounded-2xl border border-red-400 text-red-300 hover:border-red-500 px-3 py-2 text-sm font-medium"
+      >
+        Disconnect wallet
+      </button>
+    ) : showWalletPicker && availableWallets.length > 1 ? (
+      // namiesto Connect tlačidla zobrazíme výber walletov
+      <div className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-3 text-xs space-y-2">
+        <p className="text-[11px] text-slate-400">
+          Choose a wallet to connect:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {availableWallets.map((id) => (
             <button
+              key={id}
               type="button"
-              onClick={quickBurn}
-              disabled={quickBurnLoading}
-              className="w-full rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60 flex items-center justify-center gap-1"
+              onClick={() => connectWithWallet(id)}
+              className="px-3 py-1 rounded-2xl border border-slate-600 hover:border-sky-500 hover:text-sky-400"
             >
-              {quickBurnLoading ? "Burning…" : "🔥 Burn & reclaim ADA"}
+              {WALLET_LABELS[id] ?? id}
             </button>
-
-            <p className="text-[11px] text-slate-500">
-              Burning permanently destroys the NFT — this action cannot be
-              undone.
-            </p>
-          </div>
-        )}
-
-        {/* Connect / send buttons */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <button
-            onClick={walletConnected ? disconnectWallet : handleConnectClick}
-            className={`w-full sm:flex-1 rounded-2xl border px-3 py-2 text-sm font-medium ${
-              walletConnected
-                ? "border-slate-500 text-slate-300 hover:border-slate-400"
-                : "border-slate-600 hover:border-sky-500 hover:text-sky-400"
-            }`}
-          >
-            {walletConnected ? "Disconnect wallet" : "Connect wallet"}
-          </button>
-
-          {activeTab === "send" && (
-            <button
-              onClick={sendMessageAsNFT}
-              disabled={loading}
-              className="w-full sm:flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
-            >
-              {loading ? "Sending..." : "Send as NFT"}
-            </button>
-          )}
+          ))}
         </div>
+      </div>
+    ) : (
+      // default stav – len Connect button
+      <button
+        onClick={handleConnectClick}
+        className="w-full rounded-2xl border border-slate-600 hover:border-sky-500 hover:text-sky-400 px-3 py-2 text-sm font-medium"
+      >
+        Connect wallet
+      </button>
+    )}
+  </div>
+
+  {/* Pravá strana: Send button len v Send tabu */}
+  {activeTab === "send" && (
+    <button
+      onClick={sendMessageAsNFT}
+      disabled={loading}
+      className="flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
+    >
+      {loading ? "Sending..." : "Send as NFT"}
+    </button>
+  )}
+</div>
+
 
         {/* Wallet address */}
         {walletAddress && (
