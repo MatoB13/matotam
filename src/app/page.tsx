@@ -10,7 +10,7 @@ const WALLET_LABELS: Record<string, string> = {
   flint: "Flint",
 };
 
-// Blockfrost config – MAINNET
+
 const BLOCKFROST_API = "https://cardano-mainnet.blockfrost.io/api/v0";
 const BLOCKFROST_KEY = "mainnetjK2y8L83PWohEHDWRNgO5UjeMG3A3kJe";
 
@@ -18,7 +18,7 @@ const BLOCKFROST_KEY = "mainnetjK2y8L83PWohEHDWRNgO5UjeMG3A3kJe";
 const ADA_HANDLE_POLICY_ID =
   "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a";
 
-// MAINNET matotam dev / service address (0.1 ADA fee, môže burnovať)
+
 const DEV_ADDRESS =
   "addr1q8d5hu0c0x9vyklqdshkx6t0mw3t9tv46c6g4wvqecduqq2e9wy54x7ffcdly855h96s805k9e3z4pgpmeyu5tjfudfsksgfnq";
 
@@ -27,15 +27,22 @@ type MatotamMessage = {
   policyId: string;
   assetName: string;
   fingerprint?: string;
+
   fullText: string;
   textPreview: string;
+
   createdAt?: string;
   fromAddress?: string;
   toAddress?: string;
   imageDataUri?: string;
+
+  // optional thread info (for new v2 metadata)
+  threadId?: string;
+  threadIndex?: string;
 };
 
-// jednoduchý cache pre /assets/{unit}
+
+
 const assetCache = new Map<string, any>();
 
 // ---------- helpers -------------------------------------------------
@@ -43,7 +50,7 @@ const assetCache = new Map<string, any>();
 // Quick Burn helpers: unit <-> quickBurnId (base64url, bez '=')
 
 function encodeUnitToQuickBurnId(unitHex: string): string {
-  // očakávame čistý hex, párny počet znakov
+
   if (!/^[0-9a-fA-F]+$/.test(unitHex) || unitHex.length % 2 !== 0) {
     throw new Error("Invalid unit hex for quickBurnId.");
   }
@@ -68,7 +75,7 @@ function decodeQuickBurnIdToUnit(quickBurnId: string): string | null {
     return null;
   }
 
-  // späť na klasické base64
+
   let b64 = quickBurnId.replace(/-/g, "+").replace(/_/g, "/");
   while (b64.length % 4 !== 0) {
     b64 += "=";
@@ -110,7 +117,7 @@ function looksLikeAdaHandle(value: string): boolean {
   return false;
 }
 
-// ADA Handle resolver – handle.me + Blockfrost + CIP-25 fallback
+
 async function resolveAdaHandle(handle: string): Promise<string | null> {
   try {
     const raw = handle.trim();
@@ -119,7 +126,7 @@ async function resolveAdaHandle(handle: string): Promise<string | null> {
     if (!name) return null;
 
     //
-    // 1) Pokus cez oficiálne ADA Handle API (api.handle.me)
+
     //
     try {
       const apiResp = await fetch(
@@ -164,7 +171,7 @@ async function resolveAdaHandle(handle: string): Promise<string | null> {
     }
 
     //
-    // 2) Fallback – starý CIP-25 resolver cez Blockfrost
+
     //
     const { toHex } = await import("lucid-cardano");
 
@@ -178,7 +185,7 @@ async function resolveAdaHandle(handle: string): Promise<string | null> {
 
     for (const variant of variants) {
       const bytes = new TextEncoder().encode(variant);
-      const assetNameHex = toHex(bytes);
+      const assetNameHex = toHex(bytes).toLowerCase();  
       const unit = ADA_HANDLE_POLICY_ID + assetNameHex;
 
       const resp = await fetch(`${BLOCKFROST_API}/assets/${unit}/addresses`, {
@@ -206,8 +213,8 @@ async function resolveAdaHandle(handle: string): Promise<string | null> {
 
 function wrapMessageForBubble(
   text: string,
-  maxLineLength = 24,
-  maxLines = 5
+  maxLineLength = 50,
+  maxLines = 10
 ): string[] {
   const trimmed = text.slice(0, 256).trim();
   if (!trimmed) return [];
@@ -237,7 +244,18 @@ function wrapMessageForBubble(
 function buildBubbleSvg(lines: string[]): string {
   const safeLines = lines.length > 0 ? lines : ["(empty message)"];
   const lineHeight = 28;
-  const startY = 120;
+
+  // Base padding & dimensions
+  const bubbleX = 40;
+  const bubbleY = 40;
+  const bubbleWidth = 520;
+
+  // Dynamická výška bubliny
+  const bubbleHeight = Math.max(200, safeLines.length * lineHeight + 80);
+
+  const centerY = bubbleY + bubbleHeight / 2;
+  const totalHeight = (safeLines.length - 1) * lineHeight;
+  const startY = centerY - totalHeight / 2;
 
   const textElements = safeLines
     .map((line, idx) => {
@@ -246,23 +264,36 @@ function buildBubbleSvg(lines: string[]): string {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-      return `<text x="300" y="${y}" text-anchor="middle"
-          fill="#e5e7eb" font-size="22"
+      return `
+        <text x="50%" y="${y}"
+          text-anchor="middle"
+          fill="#e5e7eb"
+          font-size="22"
           font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
           ${escaped}
         </text>`;
     })
     .join("");
 
+  // Arrow dynamically positioned under the bubble
+  const arrowY = bubbleY + bubbleHeight;
+
   return `
-<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
-  <rect x="40" y="40" width="520" height="240" rx="40" ry="40"
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="${
+    bubbleHeight + 100
+  }" viewBox="0 0 600 ${bubbleHeight + 100}">
+  <rect x="${bubbleX}" y="${bubbleY}"
+        width="${bubbleWidth}" height="${bubbleHeight}"
+        rx="40" ry="40"
         fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
-  <path d="M 260 280 L 275 320 L 315 280"
+
+  <path d="M 260 ${arrowY} L 275 ${arrowY + 40} L 315 ${arrowY}"
         fill="#0b1120" stroke="#0ea5e9" stroke-width="4" />
+
   ${textElements}
 </svg>`.trim();
 }
+
 
 function svgToDataUri(svg: string): string {
   const encoded = encodeURIComponent(svg)
@@ -287,7 +318,7 @@ function parseQuickBurnInput(rawInput: string): {
 
   let id = raw;
 
-  // ak je to URL (napr. pool.pm), vezmeme posledný segment za '/'
+
   if (id.startsWith("http://") || id.startsWith("https://")) {
     const parts = id.split("/");
     id = parts[parts.length - 1] || "";
@@ -300,13 +331,76 @@ function parseQuickBurnInput(rawInput: string): {
     return { unit: null, fingerprintLike: true };
   }
 
-  // Quick Burn ID = čistý hex (unit)
+
   if (/^[0-9a-fA-F]+$/.test(id)) {
     return { unit: id, fingerprintLike: false };
   }
 
   return { unit: null, fingerprintLike: false };
 }
+
+
+// Encode message (UTF-8) to base64 (ASCII-only, safe for metadata)
+function encodeMessageToBase64(message: string): string {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(message);
+
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+
+  return typeof btoa === "function"
+    ? btoa(binary)
+    : Buffer.from(binary, "binary").toString("base64");
+}
+
+// Decode message back from base64 to UTF-8
+function decodeMessageFromBase64(encoded: string): string {
+  let binary: string;
+
+  if (typeof atob === "function") {
+    binary = atob(encoded);
+  } else {
+    binary = Buffer.from(encoded, "base64").toString("binary");
+  }
+
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const decoder = new TextDecoder();
+  return decoder.decode(bytes);
+}
+
+// Split ASCII/base64 string into fixed-length chunks
+function splitAsciiIntoSegments(text: string, maxLength = 64): string[] {
+  const segments: string[] = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    segments.push(text.slice(i, i + maxLength));
+  }
+  return segments;
+}
+
+// Prepare a metadata-safe plain-text version of the message
+// - keeps standard ASCII characters (including apostrophes)
+// - strips emoji and non-ASCII symbols
+// - replaces double quotes with single quotes to avoid escaping issues
+function makeSafeMetadataText(message: string, maxLength = 256): string {
+  if (!message) return "";
+
+  const trimmed = message.trim().slice(0, maxLength);
+
+  // Remove non-ASCII characters (emoji, fancy quotes, etc.)
+  let cleaned = trimmed.replace(/[^\x20-\x7E]/g, "");
+
+  // Replace double quotes with single quotes so they are easy to render in JSON/clients
+  cleaned = cleaned.replace(/"/g, "'");
+
+  return cleaned;
+}
+
 
 // ---------- COMPONENT ------------------------------------------------
 
@@ -441,7 +535,7 @@ export default function Home() {
 
       let assets: any[] = [];
 
-      // 1) Skúsime stake účet – prvá stránka, max 100 assetov
+
       if (stakeAddress) {
         const resp = await fetch(
           `${BLOCKFROST_API}/accounts/${stakeAddress}/addresses/assets?page=1&count=100`,
@@ -454,7 +548,7 @@ export default function Home() {
         }
       }
 
-      // 2) Fallback – jedna adresa
+
       if (assets.length === 0 && walletAddress) {
         const resp = await fetch(
           `${BLOCKFROST_API}/addresses/${walletAddress}/assets?page=1&count=100`,
@@ -472,7 +566,7 @@ export default function Home() {
         return;
       }
 
-      // 3) Ak prvá stránka vrátila presne 100 assetov, považujeme wallet za „veľkú“
+
       if (assets.length === 100) {
         setInboxMessages([]);
         setError(
@@ -487,7 +581,7 @@ export default function Home() {
         const unit: string = asset.unit;
         if (!unit) continue;
 
-        // CACHE: ak už asset máme, nepýtame sa Blockfrost znova
+
         let assetData: any;
         if (assetCache.has(unit)) {
           assetData = assetCache.get(unit);
@@ -515,9 +609,27 @@ export default function Home() {
 
         if (!isMatotam) continue;
 
+        // ---------- decode message text (new v2 first, then fallback) ----------
         let fullText = "";
-        if (Array.isArray(meta.messageSegments)) {
-          fullText = meta.messageSegments.map((s: any) => String(s)).join("");
+
+        // v2: Message is an array of safe ASCII segments (metadata v2)
+        if (Array.isArray((meta as any).Message)) {
+          fullText = ((meta as any).Message as any[]).map(String).join("");
+        }
+        // v1: preferred path – base64-encoded message
+        else if (Array.isArray(meta.messageEncodedSegments)) {
+          const encoded = (meta.messageEncodedSegments as any[])
+            .map((s) => String(s))
+            .join("");
+          try {
+            fullText = decodeMessageFromBase64(encoded);
+          } catch {
+            fullText = "";
+          }
+        }
+        // v0: older matotam NFTs
+        else if (Array.isArray(meta.messageSegments)) {
+          fullText = (meta.messageSegments as any[]).map(String).join("");
         } else if (typeof meta.message === "string") {
           fullText = meta.message;
         } else {
@@ -527,17 +639,34 @@ export default function Home() {
         const preview =
           fullText.length > 80 ? fullText.slice(0, 77) + "..." : fullText || name;
 
+        // createdAt – v2 už posielame ľudskú hodnotu, tak ju len zobrazíme
         const createdAt = meta.createdAt ? String(meta.createdAt) : undefined;
 
+        // Sender / Receiver (v2) + fallback na staré fromAddressSegments / toAddressSegments
         let fromAddress: string | undefined;
-        if (Array.isArray(meta.fromAddressSegments)) {
+        if (Array.isArray((meta as any).Sender)) {
+          fromAddress = ((meta as any).Sender as any[]).map(String).join("");
+        } else if (Array.isArray(meta.fromAddressSegments)) {
           fromAddress = (meta.fromAddressSegments as any[]).map(String).join("");
         }
 
         let toAddressFull: string | undefined;
-        if (Array.isArray(meta.toAddressSegments)) {
+        if (Array.isArray((meta as any).Receiver)) {
+          toAddressFull = ((meta as any).Receiver as any[]).map(String).join("");
+        } else if (Array.isArray(meta.toAddressSegments)) {
           toAddressFull = (meta.toAddressSegments as any[]).map(String).join("");
         }
+
+        // optional thread info (v2 only)
+        const threadId =
+          typeof (meta as any).Thread === "string"
+            ? String((meta as any).Thread)
+            : undefined;
+        const threadIndex =
+          typeof (meta as any)["Thread index"] === "string"
+            ? String((meta as any)["Thread index"])
+            : undefined;
+
 
         let imageDataUri: string | undefined;
         if (Array.isArray(meta.image)) {
@@ -557,7 +686,10 @@ export default function Home() {
           fromAddress,
           toAddress: toAddressFull,
           imageDataUri,
+          threadId,
+          threadIndex,
         });
+
       }
 
       setInboxMessages(messages);
@@ -748,10 +880,18 @@ async function quickBurn() {
     let fromAddrMeta: string | null = null;
     let toAddrMeta: string | null = null;
 
-    if (Array.isArray(meta.fromAddressSegments)) {
+    // v2: Sender / Receiver
+    if (Array.isArray((meta as any).Sender)) {
+      fromAddrMeta = ((meta as any).Sender as any[]).map(String).join("");
+    } else if (Array.isArray(meta.fromAddressSegments)) {
+      // v1 fallback
       fromAddrMeta = (meta.fromAddressSegments as any[]).map(String).join("");
     }
-    if (Array.isArray(meta.toAddressSegments)) {
+
+    if (Array.isArray((meta as any).Receiver)) {
+      toAddrMeta = ((meta as any).Receiver as any[]).map(String).join("");
+    } else if (Array.isArray(meta.toAddressSegments)) {
+      // v1 fallback
       toAddrMeta = (meta.toAddressSegments as any[]).map(String).join("");
     }
 
@@ -759,6 +899,7 @@ async function quickBurn() {
       setError("This message is missing required metadata to burn.");
       return;
     }
+
 
     const myAddr = await lucid.wallet.address();
     const myCred = lucid.utils.paymentCredentialOf(myAddr);
@@ -877,7 +1018,7 @@ async function quickBurn() {
       const senderAddr = await lucid.wallet.address();
       const { toHex } = await import("lucid-cardano");
 
-      // 3-sig policy: sender OR recipient OR matotam môže mint/burn
+
       const senderCred = lucid.utils.paymentCredentialOf(senderAddr);
       const recipientCred = lucid.utils.paymentCredentialOf(recipientAddress);
       const matotamCred = lucid.utils.paymentCredentialOf(DEV_ADDRESS);
@@ -894,56 +1035,141 @@ async function quickBurn() {
       const policy = lucid.utils.nativeScriptFromJson(policyJson);
       const policyId = lucid.utils.mintingPolicyToId(policy);
 
-      const safeMessage = message.trim().slice(0, 256);
-      const messageSegments = splitIntoSegments(safeMessage, 64);
+     //--------------------------------------------------------------------
+// THREAD + ASSET NAME GENERATION
+//--------------------------------------------------------------------
 
-      const messagePreview =
-        safeMessage.length > 61 ? safeMessage.slice(0, 61) + "..." : safeMessage;
+// Last 3 chars of sender & receiver address (still human-friendly, shorter)
+// This keeps assetNameBase <= 20 chars so quickBurnId stays <= 64 chars.
+const senderShort = senderAddr.slice(-3);
+const receiverShort = recipientAddress.slice(-3);
 
-      const description = "On-chain message sent via matotam.io";
+// Thread identifier (stable for any sender → receiver pair)
+const threadId = `matotam-${senderShort}-${receiverShort}`;
 
-      const fromShort = `${senderAddr.slice(0, 16)}...${senderAddr.slice(-4)}`;
-      const fromAddressSegments = splitIntoSegments(senderAddr, 64);
-      const toAddressSegments = splitIntoSegments(recipientAddress, 64);
+// Ask Blockfrost how many NFTs with THIS policy already exist
+const mintedCountResp = await fetch(
+  `${BLOCKFROST_API}/assets/policy/${policyId}?count=100&order=asc`,
+  { headers: { project_id: BLOCKFROST_KEY } }
+);
 
-      const policyLabel = `tam from ${fromShort}`;
+let seq = 1;
+if (mintedCountResp.ok) {
+  const minted = await mintedCountResp.json();
+  if (Array.isArray(minted)) seq = minted.length + 1;
+}
 
-      // SVG bubble + image data URI, rozkúskované na 64-znakové segmenty
-      const bubbleLines = wrapMessageForBubble(safeMessage);
-      const svg = buildBubbleSvg(bubbleLines);
-      const dataUri = svgToDataUri(svg);
+// Sequence number formatted with leading zeros (3-digit always)
+const seqStr = seq.toString().padStart(3, "0");
 
-      const MAX_IMAGE_CHARS = 4096;
-      const shortenedDataUri = dataUri.slice(0, MAX_IMAGE_CHARS);
-      const imageChunks = splitIntoSegments(shortenedDataUri, 64);
+// Final asset name for this NFT (max ~19 chars)
+const assetNameBase = `${threadId}-${seqStr}`;
 
-const assetNameBase = `matotam-${safeMessage.slice(0, 12) || "msg"}`;
 
-// vypočítame unit a quickBurnId (base64url z unitHex)
+// Convert to HEX (Cardano requirement)
 const assetNameBytes = new TextEncoder().encode(assetNameBase);
 const assetNameHex = toHex(assetNameBytes);
+
+// Final unit
 const unit = policyId + assetNameHex;
+
+// Quick Burn ID (base64url)
 const quickBurnId = encodeUnitToQuickBurnId(unit);
 
+
+// --- METADATA PROCESSING --------------------------------------------------
+
+// On-chain text (limit 256 chars)
+const safeMessage = message.trim().slice(0, 256);
+
+// Base64 (full UTF-8, with emoji)
+const encodedMessage = encodeMessageToBase64(safeMessage);
+const messageEncodedSegments = splitAsciiIntoSegments(encodedMessage, 64);
+
+// Short ASCII-only preview (explorer-friendly)
+const asciiPreviewSource = safeMessage.replace(/[^\x20-\x7E]/g, "");
+const messagePreview =
+  asciiPreviewSource.length > 61
+    ? asciiPreviewSource.slice(0, 61) + "..."
+    : asciiPreviewSource || "(message)";
+
+// Full ASCII-only version (safe)
+const messageSafeFull = makeSafeMetadataText(safeMessage);
+
+// Short ASCII (<=64 chars)
+const messageSafe =
+  messageSafeFull.length > 64 ? messageSafeFull.slice(0, 64) : messageSafeFull;
+
+// Segments of full ASCII text
+const messageSafeSegments = splitAsciiIntoSegments(messageSafeFull, 64);
+
+// Burn info
+const burnInfoFull =
+  "To unlock the ADA in this message NFT, burn it on matotam.io. Burn can be done only by the sender, the receiver, or matotam."
+
+
+// segmented long text
+const burnInfoSegments = splitAsciiIntoSegments(burnInfoFull, 64);
+
+const description = "On-chain message sent via matotam.io";
+
+// Addresses
+const fromShort = `${senderAddr.slice(0, 16)}...${senderAddr.slice(-4)}`;
+const fromAddressSegments = splitIntoSegments(senderAddr, 64);
+const toAddressSegments = splitIntoSegments(recipientAddress, 64);
+
+// SVG bubble
+const bubbleLines = wrapMessageForBubble(safeMessage);
+const svg = buildBubbleSvg(bubbleLines);
+const dataUri = svgToDataUri(svg);
+const shortenedDataUri = dataUri.slice(0, 4096);
+const imageChunks = splitIntoSegments(shortenedDataUri, 64);
+
+
+// FINAL 721 METADATA
 const rawMetadata721 = {
   [policyId]: {
     [assetNameBase]: {
-      name: assetNameBase,
-      description,
-      messagePreview,
-      messageSegments,
+      //
+      // PRIORITY FIRST — EASY BURN
+      //
+      quickBurnId,
+
+      //
+      // HUMAN FIELDS
+      //
+      "Burn info": burnInfoSegments,
+      "Sender": fromAddressSegments,   // full address in segments
+      "Receiver": toAddressSegments,   // full address in segments
+
+      //"Message": messageSafeSegments.join(""),
+      "Message": messageSafeSegments,
+
+      // thread info
+      Thread: threadId,
+      "Thread index": seqStr,
+
+      "Locked ADA": "1.5",
+
+      createdAt: new Date().toISOString(), // nicer for pool.pm
+
+      //
+      // IMAGE
+      //
       image: imageChunks,
       mediaType: "image/svg+xml",
-      createdAt: Date.now().toString(),
-      fromShort,
-      fromAddressSegments,
-      toAddressSegments,
+
+      //
+      // SYSTEM FIELDS
+      //
+      name: assetNameBase,
+      description,
       source: "https://matotam.io",
-      policyLabel,
-      quickBurnId, // <— tu ukladáme zakódovaný unit
+      version: "matotam-metadata-v1",
     },
   },
 };
+
 
 const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
 
@@ -1145,13 +1371,18 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
                         {m.textPreview || "(no text)"}
                       </p>
 
-                      {m.createdAt &&
-                        !Number.isNaN(Number(m.createdAt)) && (
-                          <p className="text-slate-500">
-                            Received:{" "}
-                            {new Date(Number(m.createdAt)).toLocaleString()}
-                          </p>
-                        )}
+                      {m.createdAt && (
+                        <p className="text-slate-500">
+                          Received: {m.createdAt}
+                        </p>
+                      )}
+                      {m.threadId && (
+                        <p className="text-xs text-slate-500">
+                          Thread: {m.threadId}
+                          {m.threadIndex ? ` (#${m.threadIndex})` : ""}
+                        </p>
+                      )}
+
 
                       <p className="text-xs text-slate-500">
                         Asset:{" "}
@@ -1272,7 +1503,7 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
   {/* Ľavá strana: connect / wallet picker */}
   <div className="flex-1">
     {walletConnected ? (
-      // už pripojený – len Disconnect
+
       <button
         onClick={disconnectWallet}
         className="w-full rounded-2xl border border-red-400 text-red-300 hover:border-red-500 px-3 py-2 text-sm font-medium"
@@ -1280,7 +1511,7 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
         Disconnect wallet
       </button>
     ) : showWalletPicker && availableWallets.length > 1 ? (
-      // namiesto Connect tlačidla zobrazíme výber walletov
+
       <div className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-3 py-3 text-xs space-y-2">
         <p className="text-[11px] text-slate-400">
           Choose a wallet to connect:
@@ -1299,7 +1530,7 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
         </div>
       </div>
     ) : (
-      // default stav – len Connect button
+
       <button
         onClick={handleConnectClick}
         className="w-full rounded-2xl border border-slate-600 hover:border-sky-500 hover:text-sky-400 px-3 py-2 text-sm font-medium"
