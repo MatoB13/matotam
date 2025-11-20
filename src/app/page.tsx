@@ -1555,7 +1555,7 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
       disabled={loading}
       className="flex-1 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60"
     >
-      {loading ? "Sending..." : "Send as NFT"}
+      {loading ? "Sending..." : "Mint & Send (~2.5 ADA)"}
     </button>
   )}
 </div>
@@ -1620,18 +1620,15 @@ const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
             </summary>
             <div className="mt-2 space-y-1">
               <p>
-                Messages are stored permanently on the Cardano blockchain —
-                please avoid sharing sensitive information.
+                Total cost of ~2.5 ADA includes dev, network & minting fees.
               </p>
+
               <p>
-                The developer fee corresponds to Cardano’s minimum UTxO
-                requirement, which is approximately 1 ADA.
+                Around 1.5 ADA is refundable — you or the recipient can reclaim it by burning the NFT.
               </p>
+
               <p>
-                The remaining cost covers Cardano network and minting fees.
-                Most of the ADA locked in a message NFT can be reclaimed later
-                by burning it from either the sender’s or the recipient’s
-                wallet.
+                Messages are stored permanently on-chain.
               </p>
             </div>
           </details>
