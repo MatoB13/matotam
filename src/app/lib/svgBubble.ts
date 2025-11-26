@@ -8,7 +8,7 @@ import { buildOrnamentPaths, type OrnamentParams } from "./swirlEngine";
 // Split long message into wrapped lines for the bubble
 export function wrapMessageForBubble(
   text: string,
-  maxLineLength = 42,
+  maxLineLength = 44, // trochu kratšie, aby text nepretiekal cez bublinu
   maxLines = 10
 ): string[] {
   const trimmed = text.slice(0, 256).trim();
@@ -38,6 +38,8 @@ export function wrapMessageForBubble(
 }
 
 // Build full SVG (bubble + rarity code + mirrored ornaments)
+// Výstup je úmyselne čo najkompaktnejší (bez zbytočných medzier a zalomení),
+// aby bol data URI čo najkratší.
 export function buildBubbleSvg(
   lines: string[],
   rarityCode: string,
@@ -55,27 +57,7 @@ export function buildBubbleSvg(
   const totalHeight = (safeLines.length - 1) * lineHeight;
   const startY = centerY - totalHeight / 2;
 
-  const textElements = safeLines
-    .map((line, idx) => {
-      const y = startY + idx * lineHeight;
-      const escaped = line
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      return `
-        <text x="50%" y="${y}"
-          text-anchor="middle"
-          fill="#e5e7eb"
-          font-size="22"
-          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-          ${escaped}
-        </text>`;
-    })
-    .join("");
-
   const arrowY = bubbleY + bubbleHeight;
-
-  // Ornament row position (rarity code centered vertically)
   const ornamentBaselineY = arrowY + 56;
   const svgHeight = ornamentBaselineY + 70;
   const centerX = 300;
@@ -85,89 +67,33 @@ export function buildBubbleSvg(
     centerX,
     ornamentBaselineY
   );
-
   const strokeWidth = ornamentParams.strokeWidth.toFixed(2);
 
+  // Kompaktné path skupiny
   const leftPaths = left
-    .map(
-      (d) => `
-    <path d="${d}" />`
-    )
+    .map((d) => `<path d="${d}"/>`)
     .join("");
-
   const rightPaths = right
-    .map(
-      (d) => `
-    <path d="${d}" />`
-    )
+    .map((d) => `<path d="${d}"/>`)
     .join("");
 
-  return `
-<svg xmlns="http://www.w3.org/2000/svg"
-     width="600"
-     height="${svgHeight}"
-     viewBox="0 0 600 ${svgHeight}">
-  <rect width="100%" height="100%" fill="#020617" />
+  // Kompaktné text elementy
+  const textElements = safeLines
+    .map((line, idx) => {
+      const y = startY + idx * lineHeight;
+      const escaped = line
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return `<text x="50%" y="${y}" text-anchor="middle" fill="#e5e7eb" font-size="22" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${escaped}</text>`;
+    })
+    .join("");
 
-  <!-- unified bubble body + arrow -->
-  <path
-    d="${
-      (() => {
-        const cx = centerX;
-        const by = bubbleY;
-        const bx = bubbleX;
-        const bw = bubbleWidth;
-        const bh = bubbleHeight;
-        const ay = arrowY;
-
-        return [
-          `M ${bx + 40} ${by}`,
-          `H ${bx + bw - 40}`,
-          `Q ${bx + bw} ${by} ${bx + bw} ${by + 40}`,
-          `V ${ay - 40}`,
-          `Q ${bx + bw} ${ay} ${bx + bw - 40} ${ay}`,
-          `H ${cx + 32}`,
-          `L ${cx} ${ay + 38}`,
-          `L ${cx - 32} ${ay}`,
-          `H ${bx + 40}`,
-          `Q ${bx} ${ay} ${bx} ${ay - 40}`,
-          `V ${by + 40}`,
-          `Q ${bx} ${by} ${bx + 40} ${by}`,
-          `Z`,
-        ].join(" ");
-      })()
-    }"
-    fill="#0b1120"
-    stroke="#0ea5e9"
-    stroke-width="4"
-    stroke-linejoin="round"
-  />
-
-  ${textElements}
-
-  <!-- Ornament row: left + right + rarity code -->
-  <g stroke="#0ea5e9"
-     stroke-width="${strokeWidth}"
-     fill="none"
-     stroke-linecap="round"
-     stroke-linejoin="round">
-
-    ${leftPaths}
-    ${rightPaths}
-
-    <text x="${centerX}" y="${ornamentBaselineY}"
-      text-anchor="middle"
-      dominant-baseline="middle"
-      fill="#0ea5e9"
-      font-size="18"
-      font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-      ${rarityCode}
-    </text>
-  </g>
-</svg>`.trim();
+  // Celé SVG – jeden skompaktnený string
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="${svgHeight}" viewBox="0 0 600 ${svgHeight}"><rect width="100%" height="100%" fill="#020617"/><rect x="${bubbleX}" y="${bubbleY}" width="${bubbleWidth}" height="${bubbleHeight}" rx="40" ry="40" fill="#0b1120" stroke="#0ea5e9" stroke-width="4"/><path d="M260 ${arrowY} L300 ${arrowY + 38} L340 ${arrowY}" fill="#0b1120" stroke="#0ea5e9" stroke-width="4"/>${textElements}<g stroke="#0ea5e9" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round" stroke-linejoin="round">${leftPaths}${rightPaths}<text x="${centerX}" y="${ornamentBaselineY}" text-anchor="middle" dominant-baseline="middle" fill="#0ea5e9" font-size="18" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${rarityCode}</text></g></svg>`;
 }
 
-// SVG → data URI for <img src="...">
+// SVG → data URI pre <img src="...">
 export function svgToDataUri(svg: string): string {
   const encoded = encodeURIComponent(svg)
     .replace(/'/g, "%27")

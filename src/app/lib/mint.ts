@@ -142,9 +142,19 @@ export async function buildMatotamMintData(params: {
   const svg = buildBubbleSvg(bubbleLines, rarityCode, ornamentParams);
   const dataUri = svgToDataUri(svg);
 
-  // Shorten for on-chain size constraints
-  const shortenedDataUri = dataUri.slice(0, 4096);
-  const imageChunks = splitIntoSegments(shortenedDataUri, 64);
+  // Bezpečná logika:
+  // - už NIČ neusekávame uprostred SVG
+  // - ak by data URI bolo extrémne dlhé, radšej úplne vypneme image field
+  const MAX_URI_LENGTH = 4096;
+
+  let imageChunks: string[] = [];
+  if (dataUri.length <= MAX_URI_LENGTH) {
+    imageChunks = splitIntoSegments(dataUri, 64);
+  } else {
+    // radšej žiadny obrázok, než rozbité XML
+    imageChunks = [];
+  }
+
 
 
   // FINAL 721 METADATA
@@ -174,11 +184,14 @@ export async function buildMatotamMintData(params: {
         rarity: rarityCode,
 
         //
-        // IMAGE
+        // IMAGE (len ak sa zmestíme do limitu)
         //
-        image: imageChunks,
-        mediaType: "image/svg+xml",
-
+        ...(imageChunks.length
+          ? {
+              image: imageChunks,
+              mediaType: "image/svg+xml",
+            }
+          : {}),
 
         //
         // SYSTEM FIELDS
