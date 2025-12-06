@@ -17,7 +17,15 @@ import {
 } from "./svgBubble";
 import { getRarityInfo } from "./rarity";
 import { getOrnamentParamsForPair } from "./swirlEngine";
+// NEW: import encrypted payload type
+import type { EncryptedPayload } from "./encryption";
 
+// Local helper for converting bytes → hex (no need to import Lucid here)
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 
 type MintBuildResult = {
@@ -31,10 +39,19 @@ export async function buildMatotamMintData(params: {
   recipientAddress: string;
   message: string;
   policyId: string;
+  encryptedPayload?: EncryptedPayload; // NEW: optional encrypted payload
 }): Promise<MintBuildResult> {
-  const { senderAddr, recipientAddress, message, policyId } = params;
+  const {
+    senderAddr,
+    recipientAddress,
+    message,
+    policyId,
+    encryptedPayload,
+  } = params;
 
-  const { toHex } = await import("lucid-cardano");
+ 
+  // Flag so we can branch logic easily
+  const isEncrypted = !!encryptedPayload; // NEW
 
   //--------------------------------------------------------------------
   // THREAD + ASSET NAME GENERATION
@@ -67,7 +84,7 @@ export async function buildMatotamMintData(params: {
 
   // Convert to HEX (Cardano requirement)
   const assetNameBytes = new TextEncoder().encode(assetNameBase);
-  const assetNameHex = toHex(assetNameBytes);
+  const assetNameHex = bytesToHex(assetNameBytes);
 
   // Final unit
   const unit = policyId + assetNameHex;
@@ -77,22 +94,28 @@ export async function buildMatotamMintData(params: {
 
   // --- METADATA PROCESSING --------------------------------------------------
 
-  // On-chain text (limit 256 chars)
-  const safeMessage = message.trim().slice(0, 256);
+  // Original on-chain text candidate (limit 256 chars).
+  // IMPORTANT:
+  // - For encrypted messages we NEVER store this exact text on-chain.
+  // - It is only used for plaintext mode; encrypted mode uses a placeholder.
+  const safeMessageOriginal = message.trim().slice(0, 256); // CHANGED (renamed)
 
-  // Base64 (full UTF-8, with emoji)
-  const encodedMessage = encodeMessageToBase64(safeMessage);
-  const messageEncodedSegments = splitAsciiIntoSegments(encodedMessage, 64);
+  // Message that will actually be written into human-readable on-chain fields.
+  // - Plaintext mode: real message (as before)
+  // - Encrypted mode: a short placeholder to avoid leaking the real text
+  const safeMessageForOnchain = isEncrypted
+    ? "🔒 encrypted matotam"
+    : safeMessageOriginal; // NEW
 
   // Short ASCII-only preview (explorer-friendly)
-  const asciiPreviewSource = safeMessage.replace(/[^\x20-\x7E]/g, "");
+  const asciiPreviewSource = safeMessageForOnchain.replace(/[^\x20-\x7E]/g, "");
   const messagePreview =
     asciiPreviewSource.length > 61
       ? asciiPreviewSource.slice(0, 61) + "..."
       : asciiPreviewSource || "(message)";
 
-  // Full ASCII-only version (safe)
-  const messageSafeFull = makeSafeMetadataText(safeMessage);
+  // Full ASCII-only version (safe) – based on the *on-chain* message
+  const messageSafeFull = makeSafeMetadataText(safeMessageForOnchain);
 
   // Short ASCII (<=64 chars)
   const messageSafe =
@@ -100,8 +123,17 @@ export async function buildMatotamMintData(params: {
       ? messageSafeFull.slice(0, 64)
       : messageSafeFull;
 
-  // Segments of full ASCII text
+  // Segments of full ASCII text (used in "Message" metadata field)
   const messageSafeSegments = splitAsciiIntoSegments(messageSafeFull, 64);
+
+  // NOTE:
+  // - We intentionally DO NOT store the UTF-8/base64 form of the original
+  //   message for encrypted mode, to avoid any accidental leakage.
+  // - If you ever need that in plaintext mode, you can re-introduce it
+  //   guarded by `!isEncrypted`.
+  //
+  // const encodedMessage = encodeMessageToBase64(safeMessageOriginal);
+  // const messageEncodedSegments = splitAsciiIntoSegments(encodedMessage, 64);
 
   // Burn info
   const burnInfoFull =
@@ -124,7 +156,10 @@ export async function buildMatotamMintData(params: {
   // -----------------------------------------------------------
   // SVG bubble lines
   // -----------------------------------------------------------
-  const bubbleLines = wrapMessageForBubble(safeMessage);
+  // IMPORTANT:
+  // - For encrypted messages we again only render the placeholder text
+  //   in the bubble, never the real message.
+  const bubbleLines = wrapMessageForBubble(safeMessageForOnchain); // CHANGED
 
   // -----------------------------------------------------------
   // Ornament parameters (sender + receiver + Y + D)
@@ -142,65 +177,80 @@ export async function buildMatotamMintData(params: {
   const svg = buildBubbleSvg(bubbleLines, rarityCode, ornamentParams);
   const dataUri = svgToDataUri(svg);
 
-  // Bezpečná logika:
-  // - už NIČ neusekávame uprostred SVG
-  // - ak by data URI bolo extrémne dlhé, radšej úplne vypneme image field
+  // Safeguard logic for data URI size:
+  // - no truncation in the middle of SVG
+  // - if URI is too long, we simply drop the image field completely
   const MAX_URI_LENGTH = 4096;
 
   let imageChunks: string[] = [];
   if (dataUri.length <= MAX_URI_LENGTH) {
     imageChunks = splitIntoSegments(dataUri, 64);
   } else {
-    // radšej žiadny obrázok, než rozbité XML
+    // better no image than broken XML
     imageChunks = [];
   }
 
-
-
   // FINAL 721 METADATA
+  const baseFields: any = {
+    //
+    // PRIORITY FIRST — EASY BURN
+    //
+    quickBurnId,
+
+    //
+    // HUMAN FIELDS
+    //
+    "Burn info": burnInfoSegments,
+    Sender: fromAddressSegments,
+    Receiver: toAddressSegments,
+
+    // For encrypted messages, this is only a placeholder, not the real text.
+    Message: messageSafeSegments,
+
+    Thread: threadId,
+    "Thread index": seqStr,
+
+    createdAt: new Date().toISOString(),
+
+    // RARITY
+    rarity: rarityCode,
+
+    //
+    // IMAGE (only if we fit into the size limit)
+    //
+    ...(imageChunks.length
+      ? {
+          image: imageChunks,
+          mediaType: "image/svg+xml",
+        }
+      : {}),
+
+    //
+    // SYSTEM FIELDS
+    //
+    name: assetNameBase,
+    description,
+    source: "https://matotam.io",
+    version: "matotam-metadata-v1",
+  };
+
+  // NEW: attach encrypted payload when present
+  if (isEncrypted && encryptedPayload) {
+    // Cardano / Lucid limit: max 64 chars per metadata string.
+    // cipherText býva dlhší, preto ho rozsekáme na 64-znakové segmenty.
+    baseFields.matotam_encrypted = {
+      ...encryptedPayload,
+      cipherText: splitAsciiIntoSegments(encryptedPayload.cipherText, 64),
+    };
+    baseFields.messageMode = "encrypted";
+  } else {
+    baseFields.messageMode = "plaintext";
+  }
+
+
   const rawMetadata721 = {
     [policyId]: {
-      [assetNameBase]: {
-        //
-        // PRIORITY FIRST — EASY BURN
-        //
-        quickBurnId,
-
-        //
-        // HUMAN FIELDS
-        //
-        "Burn info": burnInfoSegments,
-        Sender: fromAddressSegments,
-        Receiver: toAddressSegments,
-
-        Message: messageSafeSegments,
-
-        Thread: threadId,
-        "Thread index": seqStr,
-
-        createdAt: new Date().toISOString(),
-
-        // RARITY
-        rarity: rarityCode,
-
-        //
-        // IMAGE (len ak sa zmestíme do limitu)
-        //
-        ...(imageChunks.length
-          ? {
-              image: imageChunks,
-              mediaType: "image/svg+xml",
-            }
-          : {}),
-
-        //
-        // SYSTEM FIELDS
-        //
-        name: assetNameBase,
-        description,
-        source: "https://matotam.io",
-        version: "matotam-metadata-v1",
-      },
+      [assetNameBase]: baseFields,
     },
   };
 

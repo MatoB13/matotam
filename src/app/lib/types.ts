@@ -1,3 +1,5 @@
+import type { EncryptedPayload } from "./encryption";
+
 export type MatotamMessage = {
   unit: string;
   policyId: string;
@@ -15,4 +17,8 @@ export type MatotamMessage = {
 
   threadId?: string;
   threadIndex?: string;
+
+  isEncrypted?: boolean;
+  encryptedPayload?: EncryptedPayload;
+
 };

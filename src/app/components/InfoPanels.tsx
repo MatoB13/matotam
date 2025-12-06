@@ -14,11 +14,18 @@ export default function InfoPanels() {
             your message as text plus a small on-chain SVG bubble image.
           </p>
           <p>
-            ③ The NFT is sent to the recipient’s Cardano address (or ADA
+            ③ Optionally, the message text can be{" "}
+            <span className="font-semibold">encrypted</span> on-chain using a
+            passphrase. In that case, explorers like pool.pm will only see
+            encrypted data and the message can be read only on matotam.io with
+            the correct passphrase.
+          </p>
+          <p>
+            ④ The NFT is sent to the recipient’s Cardano address (or ADA
             Handle) and appears in their wallet or on pool.pm.
           </p>
           <p>
-            ④ This message NFT can later be burned by the original sender, the
+            ⑤ This message NFT can later be burned by the original sender, the
             original recipient, or the matotam service address to reclaim most
             of the ADA locked inside.
           </p>
@@ -39,6 +46,12 @@ export default function InfoPanels() {
           </p>
 
           <p>Messages are stored permanently on-chain.</p>
+          <p>
+            Encrypted messages require the correct passphrase to be read. The
+            passphrase is never stored by matotam or on-chain — if it is lost,
+            the encrypted message cannot be recovered.
+          </p>
+
         </div>
       </details>
     </div>

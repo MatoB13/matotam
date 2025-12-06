@@ -32,6 +32,10 @@ import BurnTab from "./components/BurnTab";
 import WalletControls from "./components/WalletControls";
 import InfoPanels from "./components/InfoPanels";
 import Footer from "./components/Footer";
+import {
+  encryptMessageWithPassphrase,
+  EncryptedPayload,
+} from "./lib/encryption";
 
 
 const assetCache = new Map<string, any>();
@@ -50,14 +54,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null); 
-
   const [activeTab, setActiveTab] = useState<"send" | "inbox" | "burn">("send");
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxMessages, setInboxMessages] = useState<MatotamMessage[]>([]);
   const [burningUnit, setBurningUnit] = useState<string | null>(null);
-
+  const [needsInboxPolicy, setNeedsInboxPolicy] = useState(false);
   const [quickBurnInput, setQuickBurnInput] = useState("");
   const [quickBurnLoading, setQuickBurnLoading] = useState(false);
+  const [sendEncrypted, setSendEncrypted] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [confirmPassphrase, setConfirmPassphrase] = useState("");
+
 
     // --- Wallet wrappers (delegate to lib/wallet.ts, keep original names) ---
 
@@ -109,6 +116,7 @@ async function loadInbox() {
     }
 
     setError(null);
+    setNeedsInboxPolicy(false);
     setInboxLoading(true);
 
     const msgs = await fetchInboxMessages({
@@ -121,13 +129,51 @@ async function loadInbox() {
     setInboxMessages(msgs);
   } catch (e: any) {
     if (e?.message === "too_many_assets") {
+      // Large wallet – switch to "policy mode" instead of hard error
       setInboxMessages([]);
-      setError(
-        "This wallet holds a large number of tokens. The inbox supports up to 100 assets. Use pool.pm or Quick Burn for browsing."
-      );
+      setNeedsInboxPolicy(true);
+      setError(null);
     } else {
       setError("Failed to load inbox.");
     }
+  } finally {
+    setInboxLoading(false);
+  }
+}
+
+async function loadInboxForPolicy(policyId: string) {
+  try {
+    if (!walletConnected) {
+      setError("Connect your wallet to see your inbox.");
+      return;
+    }
+    if (!BLOCKFROST_KEY) {
+      setError("Blockfrost key is not configured.");
+      return;
+    }
+
+    const trimmed = policyId.trim();
+    if (!trimmed) {
+      setError("Please enter a policy ID.");
+      return;
+    }
+
+    setError(null);
+    setInboxLoading(true);
+
+    const msgs = await fetchInboxMessages({
+      walletAddress,
+      stakeAddress,
+      blockfrostKey: BLOCKFROST_KEY,
+      blockfrostApi: BLOCKFROST_API,
+      policyIdFilter: trimmed,
+    });
+
+    setInboxMessages(msgs);
+    setNeedsInboxPolicy(false);
+  } catch (e: any) {
+    console.error(e);
+    setError("Failed to load inbox for this policy.");
   } finally {
     setInboxLoading(false);
   }
@@ -367,6 +413,16 @@ async function quickBurn() {
         setError("Recipient is required.");
         return;
       }
+      if (sendEncrypted) {
+        if (!passphrase.trim()) {
+          setError("Passphrase is required when encryption is enabled.");
+          return;
+        }
+        if (passphrase.trim() !== confirmPassphrase.trim()) {
+          setError("Passphrase and confirmation do not match.");
+          return;
+        }
+      }
       if (!BLOCKFROST_KEY) {
         setError("Blockfrost key is not configured.");
         return;
@@ -394,6 +450,11 @@ async function quickBurn() {
         recipientAddress = resolved;
       }
 
+      if (sendEncrypted && !passphrase.trim()) {
+        setError("Passphrase is required when encryption is enabled.");
+        return;
+      }
+
       const senderAddr = await lucid.wallet.address();
       const { toHex } = await import("lucid-cardano");
 
@@ -414,11 +475,22 @@ async function quickBurn() {
       const policy = lucid.utils.nativeScriptFromJson(policyJson);
       const policyId = lucid.utils.mintingPolicyToId(policy);
 
+      let encryptedPayload: EncryptedPayload | undefined;
+      if (sendEncrypted) {
+        // Derive an encrypted payload from the raw message + passphrase.
+        // Only ciphertext + crypto params will go on-chain.
+        encryptedPayload = await encryptMessageWithPassphrase(
+          message,
+          passphrase.trim()
+        );
+      }
+
       const { unit, metadata721 } = await buildMatotamMintData({
         senderAddr,
         recipientAddress,
         message,
         policyId,
+        encryptedPayload, // NEW (optional)
       });
 
 
@@ -444,6 +516,10 @@ async function quickBurn() {
       setSuccess(
         "Your message was sent successfully. You can now enter another recipient or tweak the message and send again."
       );
+      // Optional: reset encryption state for the next message
+      setSendEncrypted(false);
+      setPassphrase("");
+      setConfirmPassphrase("");
     } catch (e) {
 
       console.error(e);
@@ -525,7 +601,6 @@ async function quickBurn() {
           </div>
         </div>
 
-
         {/* Main content */}
         {activeTab === "send" && (
           <SendTab
@@ -535,9 +610,14 @@ async function quickBurn() {
             setToAddress={setToAddress}
             loading={loading}
             onSend={sendMessageAsNFT}
+            sendEncrypted={sendEncrypted}
+            setSendEncrypted={setSendEncrypted}
+            passphrase={passphrase}
+            setPassphrase={setPassphrase}
+            confirmPassphrase={confirmPassphrase}              
+            setConfirmPassphrase={setConfirmPassphrase} 
           />
         )}
-
 
         {activeTab === "inbox" && (
           <InboxTab
@@ -546,11 +626,12 @@ async function quickBurn() {
             inboxMessages={inboxMessages}
             burningUnit={burningUnit}
             loadInbox={loadInbox}
+            loadInboxForPolicy={loadInboxForPolicy}
+            needsInboxPolicy={needsInboxPolicy}
             burnMessage={burnMessage}
             onReply={handleReply}
           />
         )}
-
 
 {activeTab === "burn" && (
   <BurnTab
