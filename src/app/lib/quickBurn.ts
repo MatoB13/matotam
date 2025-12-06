@@ -20,14 +20,23 @@ export function encodeUnitToQuickBurnId(unitHex: string): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
+/**
+ * Decode QuickBurnId (base64url) back to unit-hex.
+ * Supports:
+ *  - single string (user input, old metadata)
+ *  - array of strings (64-char chunks from new metadata)
+ */
 export function decodeQuickBurnIdToUnit(
-  quickBurnId: string
+  quickBurnId: string | string[]
 ): string | null {
-  if (!quickBurnId || !/^[A-Za-z0-9\-_]+$/.test(quickBurnId)) {
+  const raw =
+    Array.isArray(quickBurnId) ? quickBurnId.join("") : quickBurnId;
+
+  if (!raw || !/^[A-Za-z0-9\-_]+$/.test(raw)) {
     return null;
   }
 
-  let b64 = quickBurnId.replace(/-/g, "+").replace(/_/g, "/");
+  let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
   while (b64.length % 4 !== 0) {
     b64 += "=";
   }
@@ -59,6 +68,7 @@ export function parseQuickBurnInput(rawInput: string): {
 
   let id = raw;
 
+  // pool.pm URL or similar – take the last path segment
   if (id.startsWith("http://") || id.startsWith("https://")) {
     const parts = id.split("/");
     id = parts[parts.length - 1] || "";
@@ -71,9 +81,11 @@ export function parseQuickBurnInput(rawInput: string): {
     return { unit: null, fingerprintLike: true };
   }
 
+  // direct unit hex
   if (/^[0-9a-fA-F]+$/.test(id)) {
     return { unit: id, fingerprintLike: false };
   }
 
+  // everything else = unsupported
   return { unit: null, fingerprintLike: false };
 }

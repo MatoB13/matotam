@@ -30,10 +30,12 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/**
+ * Support both:
+ * - single base64 string (old NFTs)
+ * - array of 64-char base64 chunks (new segmented NFTs)
+ */
 function base64ToUint8(input: string | string[]): Uint8Array {
-  // Support both:
-  // - single base64 string (old NFTs)
-  // - array of 64-char base64 chunks (new segmented NFTs)
   const b64 = Array.isArray(input) ? input.join("") : input;
 
   const binary = atob(b64);
@@ -43,7 +45,6 @@ function base64ToUint8(input: string | string[]): Uint8Array {
   }
   return out;
 }
-
 
 /**
  * Shape of the encrypted payload we store inside 721 metadata.
@@ -79,7 +80,9 @@ async function deriveKeyFromPassphrase(
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      // TypeScript vs WebCrypto types: Uint8Array is a valid BufferSource at runtime,
+      // but TS can be strict here. We explicitly cast it.
+      salt: salt as unknown as BufferSource,
       iterations,
       hash: "SHA-256",
     },
@@ -101,8 +104,10 @@ export async function encryptMessageWithPassphrase(
   plaintext: string,
   passphrase: string
 ): Promise<EncryptedPayload> {
-  const salt = randomBytes(16);  // 128-bit salt for PBKDF2
-  const nonce = randomBytes(12); // 96-bit nonce for AES-GCM
+  // 128-bit salt for PBKDF2
+  const salt = randomBytes(16);
+  // 96-bit nonce (IV) for AES-GCM
+  const nonce = randomBytes(12);
   const iterations = 210_000;
 
   const key = await deriveKeyFromPassphrase(passphrase, salt, iterations);
@@ -110,7 +115,8 @@ export async function encryptMessageWithPassphrase(
   const cipherBuffer = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
-      iv: nonce,
+      // Same value at runtime, but cast to BufferSource for TS.
+      iv: nonce as unknown as BufferSource,
     },
     key,
     encoder.encode(plaintext)
@@ -152,10 +158,10 @@ export async function decryptMessageWithPassphrase(
   const plainBuffer = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: nonce,
+      iv: nonce as unknown as BufferSource,
     },
     key,
-    cipherBytes
+    cipherBytes as unknown as BufferSource
   );
 
   return decoder.decode(plainBuffer);

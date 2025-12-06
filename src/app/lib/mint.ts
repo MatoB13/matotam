@@ -79,8 +79,15 @@ export async function buildMatotamMintData(params: {
   // Sequence number formatted with leading zeros (3-digit always)
   const seqStr = seq.toString().padStart(3, "0");
 
-  // Final asset name for this NFT (max ~19 chars)
-  const assetNameBase = `${threadId}-${seqStr}`;
+  // Small random suffix to guarantee uniqueness even if Blockfrost
+  // has not yet indexed the previous mint for this policy.
+  const randomSuffix = Math.floor(Math.random() * 36 ** 2)
+    .toString(36)
+    .padStart(2, "0"); // 2 base36 chars
+
+  // Final asset name for this NFT (still well under 32-byte limit)
+  const assetNameBase = `${threadId}-${seqStr}-${randomSuffix}`;
+
 
   // Convert to HEX (Cardano requirement)
   const assetNameBytes = new TextEncoder().encode(assetNameBase);
@@ -195,7 +202,9 @@ export async function buildMatotamMintData(params: {
     //
     // PRIORITY FIRST — EASY BURN
     //
-    quickBurnId,
+        // QuickBurn Id: stored as 64-char chunks to respect metadata limits
+    quickBurnId: splitAsciiIntoSegments(quickBurnId, 64),
+
 
     //
     // HUMAN FIELDS
@@ -234,18 +243,23 @@ export async function buildMatotamMintData(params: {
     version: "matotam-metadata-v1",
   };
 
-  // NEW: attach encrypted payload when present
-  if (isEncrypted && encryptedPayload) {
-    // Cardano / Lucid limit: max 64 chars per metadata string.
-    // cipherText býva dlhší, preto ho rozsekáme na 64-znakové segmenty.
-    baseFields.matotam_encrypted = {
-      ...encryptedPayload,
-      cipherText: splitAsciiIntoSegments(encryptedPayload.cipherText, 64),
-    };
-    baseFields.messageMode = "encrypted";
-  } else {
-    baseFields.messageMode = "plaintext";
-  }
+// NEW: attach encrypted payload when present
+if (isEncrypted && encryptedPayload) {
+  // Normalize cipherText to a single base64 string (in case someone ever
+  // passes an array here) and then split into 64-char chunks for metadata.
+  const cipherTextStr = Array.isArray(encryptedPayload.cipherText)
+    ? encryptedPayload.cipherText.join("")
+    : encryptedPayload.cipherText;
+
+  baseFields.matotam_encrypted = {
+    ...encryptedPayload,
+    cipherText: splitAsciiIntoSegments(cipherTextStr, 64),
+  };
+  baseFields.messageMode = "encrypted";
+} else {
+  baseFields.messageMode = "plaintext";
+}
+
 
 
   const rawMetadata721 = {
