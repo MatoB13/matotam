@@ -112,3 +112,87 @@ export async function resolveAdaHandle(
     return null;
   }
 }
+
+// Reverse lookup: try to find an ADA Handle owned by the given address.
+//
+// Returns:
+// - "$handle" if we can confidently derive one
+// - null if not found / not resolvable
+export async function reverseLookupAdaHandle(
+  address: string
+): Promise<string | null> {
+  try {
+    const addr = address.trim();
+    if (!addr || !addr.startsWith("addr")) return null;
+
+    // 1) Convert base address -> stake address via Blockfrost
+    const addrResp = await fetch(`${BLOCKFROST_API}/addresses/${addr}`, {
+      headers: { project_id: BLOCKFROST_KEY },
+    });
+
+    if (!addrResp.ok) return null;
+
+    const addrData: any = await addrResp.json();
+    const stake = addrData?.stake_address;
+
+    if (typeof stake !== "string" || !stake.startsWith("stake")) {
+      return null;
+    }
+
+    // 2) List assets held by that stake account
+    // NOTE: This is paginated on Blockfrost; we fetch a few pages defensively.
+    let page = 1;
+    const maxPages = 5;
+
+    while (page <= maxPages) {
+      const assetsResp = await fetch(
+        `${BLOCKFROST_API}/accounts/${stake}/addresses/assets?page=${page}&count=100`,
+        { headers: { project_id: BLOCKFROST_KEY } }
+      );
+
+      if (!assetsResp.ok) break;
+
+      const assets: any[] = await assetsResp.json();
+      if (!Array.isArray(assets) || assets.length === 0) break;
+
+      // 3) Find an asset under ADA Handle policy
+      const hit = assets.find((a) => {
+        const unit = a?.unit;
+        return typeof unit === "string" && unit.startsWith(ADA_HANDLE_POLICY_ID);
+      });
+
+      if (hit?.unit && typeof hit.unit === "string") {
+        // unit = policyId + assetNameHex
+        const assetNameHex = hit.unit.slice(ADA_HANDLE_POLICY_ID.length);
+
+        // Convert hex -> text (best-effort)
+        try {
+          const parts: string[] | null = assetNameHex.match(/.{1,2}/g);
+          if (!parts) return null;
+
+          const bytes: number[] = parts.map((h: string) => parseInt(h, 16));
+
+          if (bytes.some((n: number) => Number.isNaN(n))) return null;
+
+
+          const text = new TextDecoder().decode(new Uint8Array(bytes));
+          const name = text?.trim();
+          if (!name) return null;
+
+          // Return normalized handle with "$"
+          return name.startsWith("$") ? name : `$${name}`;
+        } catch {
+          return null;
+        }
+      }
+
+      page += 1;
+    }
+
+    return null;
+  } catch (err) {
+    console.warn("reverseLookupAdaHandle error", err);
+    return null;
+  }
+}
+

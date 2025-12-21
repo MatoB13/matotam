@@ -90,14 +90,19 @@ export default function Home() {
     );
   }
 
-  async function disconnectWallet() {
-    await coreDisconnectWallet(
-      setError,
-      setWalletConnected,
-      setWalletAddress,
-      setStakeAddress
-    );
-  }
+async function disconnectWallet() {
+  coreDisconnectWallet(
+    setError,
+    setWalletConnected,
+    setWalletAddress,
+    setStakeAddress,
+    setTxHash,
+    setSuccess,
+    setShowWalletPicker,
+    setInboxMessages
+  );
+}
+
 
   // --- Helper to resolve $handles etc. ---
 

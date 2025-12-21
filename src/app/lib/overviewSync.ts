@@ -194,9 +194,10 @@ export async function syncOverviewFromDevAddress(): Promise<void> {
   for (const txHash of newTxHashes) {
     const metadataArray = await fetchTxMetadata(txHash);
 
-    const label721Entry = metadataArray.find(
-      (m) => m.label === "721" || m.label === 721
-    );
+const label721Entry = metadataArray.find(
+  (m) => String(m.label) === "721"
+);
+
 
     if (!label721Entry || !label721Entry.json_metadata) continue;
 

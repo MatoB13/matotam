@@ -10,6 +10,14 @@ type RarityInfo = {
   pairHash?: number;
 };
 
+function getProjectStartDate(): Date {
+  // "Genesis" date for date-based rarity.
+  // IMPORTANT: if you previously used a different start date,
+  // set it here to keep codes stable.
+  return new Date(Date.UTC(2026, 0, 1, 0, 0, 0)); // 2026-01-01 UTC
+}
+
+
 function hashToUint32(input: string): number {
   // FNV-1a 32-bit
   let h = 0x811c9dc5;
