@@ -21,6 +21,33 @@ import { getSigilSvgForAddress, getSigilParamsForAddress } from "./sigilEngine";
 // NEW: import encrypted payload type
 import type { EncryptedPayload } from "./encryption";
 
+
+function sanitizeMetadata(value: any): any {
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) {
+      return value.toString(); // float → string
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(sanitizeMetadata);
+  }
+
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v !== undefined && v !== null) {
+        out[k] = sanitizeMetadata(v);
+      }
+    }
+    return out;
+  }
+
+  return value;
+}
+
+
 // Local helper for converting bytes → hex (no need to import Lucid here)
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
@@ -271,7 +298,6 @@ export async function buildMatotamMintData(params: {
     },
   };
 
-  const metadata721 = JSON.parse(JSON.stringify(rawMetadata721));
-
+  const metadata721 = sanitizeMetadata(rawMetadata721);
   return { unit, assetNameBase, metadata721 };
 }
