@@ -25,3 +25,10 @@ export const DEV_ADDRESS =
   "addr1q94fu2pex5yctced6cln7f76yewpryjrcrr2c7044uv24dcw9q3xhq624fulr06kk88h22ethjcr0cz7yv6vxkjrrrzskn5juu", // slovak
   "addr1q9nfaxtq4q7qycu6qpv8rhuanshjhxrpa84lv99ng2pxeg9dwtkpzdtlhxpjr3aahkn080zw5r02p9zwx3nssxxr995syhd2ku", // matodux
 ];
+
+export const CARDANO_NETWORK = (() => {
+  const n = (process.env.NEXT_PUBLIC_NETWORK || "").toLowerCase();
+  if (n === "mainnet") return "Mainnet";
+  if (n === "preview") return "Preview";
+  return "Preprod";
+})() as "Mainnet" | "Preprod" | "Preview";

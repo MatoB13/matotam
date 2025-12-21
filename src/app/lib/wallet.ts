@@ -1,4 +1,4 @@
-import { BLOCKFROST_API, BLOCKFROST_KEY } from "./constants";
+import { BLOCKFROST_API, BLOCKFROST_KEY, CARDANO_NETWORK } from "./constants";
 
 // Detect wallets and show picker or auto-connect when only one wallet exists.
 export async function handleConnectClick(
@@ -73,7 +73,7 @@ export async function connectWithWallet(
 
     const lucid = await Lucid.new(
       new Blockfrost(BLOCKFROST_API, BLOCKFROST_KEY),
-      "Mainnet"
+      CARDANO_NETWORK
     );
 
     lucid.selectWallet(api);
@@ -88,7 +88,7 @@ export async function connectWithWallet(
     setShowWalletPicker(false);
   } catch (e) {
     console.error(e);
-    setError("Failed to connect wallet.");
+    setError((e as any)?.message ?? "Failed to connect wallet.");
   }
 }
 
