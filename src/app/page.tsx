@@ -215,8 +215,13 @@ async function disconnectWallet() {
   }
 
   async function burnMessage(unit: string) {
+    
     if (!walletConnected) {
       setError("Connect your wallet to burn messages.");
+      return;
+    }
+    if (!walletAddress) {
+      setError("Wallet address is missing. Reconnect your wallet.");
       return;
     }
     if (!BLOCKFROST_KEY) {
@@ -283,6 +288,11 @@ async function disconnectWallet() {
         setError("Connect your wallet to use Quick Burn.");
         return;
       }
+      if (!walletAddress) {
+        setError("Wallet address is missing. Reconnect your wallet.");
+        return;
+      }
+
       if (!BLOCKFROST_KEY) {
         setError("Blockfrost key is not configured.");
         return;
