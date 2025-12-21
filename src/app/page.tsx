@@ -454,13 +454,10 @@ async function sendMessageAsNFT() {
       .newTx()
       .attachMetadata(721, mintData.metadata721)
       .attachMintingPolicy(policy)
-      .mintAssets(
-        {
-          [mintData.unit]: 1n,
-        },
-        undefined as any // redeemer not used for native scripts
-      )
+      .mintAssets({ [mintData.unit]: 1n }, undefined as any)
+      .payToAddress(resolvedRecipient, { [mintData.unit]: 1n })
       .complete();
+
 
     const signedTx = await tx.sign().complete();
     const hash = await signedTx.submit();
