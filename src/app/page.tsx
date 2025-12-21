@@ -120,12 +120,8 @@ async function disconnectWallet() {
       const handle = trimmed.slice(1);
 
       // FIX: use resolveAdaHandle (existing export in adaHandle.ts)
-      const resolved = await resolveAdaHandle(
-        handle,
-        ADA_HANDLE_POLICY_ID,
-        BLOCKFROST_API,
-        BLOCKFROST_KEY
-      );
+      const resolved = await resolveAdaHandle(handle);
+
       if (!resolved) {
         throw new Error(`Could not resolve ADA handle ${trimmed}`);
       }
