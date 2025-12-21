@@ -2,29 +2,56 @@ import { MatotamMessage } from "./types";
 import { decodeMessageFromBase64 } from "./textEncoding";
 import type { EncryptedPayload } from "./encryption";
 
-const assetCache = new Map<string, any>();
+// Default module-level cache (used when caller doesn't provide one)
+const defaultAssetCache = new Map<string, any>();
+
+export type FetchInboxMessagesParams = {
+  walletAddress: string | null;
+  stakeAddress: string | null;
+
+  blockfrostKey: string;
+  blockfrostApi: string;
+
+  /**
+   * Optional policy filter to narrow scan for large wallets.
+   * Backward compatible:
+   * - policyIdFilter (old name)
+   * - overridePolicyId (new name used by page.tsx)
+   */
+  policyIdFilter?: string;
+  overridePolicyId?: string;
+
+  /**
+   * Optional cache for /assets/{unit} calls.
+   * If not provided, module-level defaultAssetCache is used.
+   */
+  assetCache?: Map<string, any>;
+};
 
 /**
  * Load matotam messages for a wallet.
  * - For small wallets (default) we only scan the first 100 assets.
- * - For large wallets you can pass a specific policyIdFilter to narrow the scan.
- *   In that case we paginate through all assets and keep only those whose unit
- *   starts with the given policy id.
+ * - For large wallets you can pass a specific policyIdFilter / overridePolicyId to narrow the scan.
+ *   In that case we paginate through all assets and keep only those whose unit starts with that policy id.
  */
-export async function fetchInboxMessages(params: {
-  walletAddress: string | null;
-  stakeAddress: string | null;
-  blockfrostKey: string;
-  blockfrostApi: string;
-  policyIdFilter?: string;
-}): Promise<MatotamMessage[]> {
+export async function fetchInboxMessages(
+  params: FetchInboxMessagesParams
+): Promise<MatotamMessage[]> {
   const {
     walletAddress,
     stakeAddress,
     blockfrostKey,
     blockfrostApi,
-    policyIdFilter,
+    assetCache,
   } = params;
+
+  // Use overridePolicyId if provided, else policyIdFilter (backward compatible)
+  const policyIdFilter =
+    (params.overridePolicyId && params.overridePolicyId.trim()) ||
+    (params.policyIdFilter && params.policyIdFilter.trim()) ||
+    undefined;
+
+  const cache = assetCache ?? defaultAssetCache;
 
   if (!walletAddress && !stakeAddress) return [];
 
@@ -43,14 +70,17 @@ export async function fetchInboxMessages(params: {
     if (hasPolicyFilter) {
       const collected: any[] = [];
       let page = 1;
+
       while (true) {
         const resp = await fetch(`${baseUrl}?page=${page}&count=100`, {
           headers,
         });
+
         if (!resp.ok) {
           console.warn("Failed to load assets (page)", page, resp.status);
           break;
         }
+
         const chunk = await resp.json();
         if (!Array.isArray(chunk) || chunk.length === 0) break;
 
@@ -66,6 +96,7 @@ export async function fetchInboxMessages(params: {
         if (chunk.length < 100) break;
         page++;
       }
+
       return collected;
     }
 
@@ -110,23 +141,24 @@ export async function fetchInboxMessages(params: {
 
     // cached asset lookup
     let assetData: any;
-    if (assetCache.has(unit)) {
-      assetData = assetCache.get(unit);
+    if (cache.has(unit)) {
+      assetData = cache.get(unit);
     } else {
       const assetResp = await fetch(`${blockfrostApi}/assets/${unit}`, {
         headers,
       });
       if (!assetResp.ok) continue;
       assetData = await assetResp.json();
-      assetCache.set(unit, assetData);
+      cache.set(unit, assetData);
     }
 
     const meta = assetData.onchain_metadata;
     if (!meta) continue;
 
     const name = String(meta.name ?? "");
-    const desc = String(meta.description ?? meta.Description ?? "");
-    const source = String(meta.source ?? meta.Source ?? "");
+    const desc = String(meta.description ?? (meta as any).Description ?? "");
+    const source = String(meta.source ?? (meta as any).Source ?? "");
+
     const isMatotam =
       source.toLowerCase().includes("matotam.io") ||
       name.toLowerCase().includes("matotam") ||
@@ -169,18 +201,18 @@ export async function fetchInboxMessages(params: {
     if (Array.isArray((meta as any).Sender)) {
       fromAddress = ((meta as any).Sender as any[]).map(String).join("");
     } else if (Array.isArray((meta as any).fromAddressSegments)) {
-      fromAddress = ((meta as any).fromAddressSegments as any[]).map(String).join(
-        ""
-      );
+      fromAddress = ((meta as any).fromAddressSegments as any[])
+        .map(String)
+        .join("");
     }
 
     let toAddress: string | undefined;
     if (Array.isArray((meta as any).Receiver)) {
       toAddress = ((meta as any).Receiver as any[]).map(String).join("");
     } else if (Array.isArray((meta as any).toAddressSegments)) {
-      toAddress = ((meta as any).toAddressSegments as any[]).map(String).join(
-        ""
-      );
+      toAddress = ((meta as any).toAddressSegments as any[])
+        .map(String)
+        .join("");
     }
 
     const createdAt = meta.createdAt ? String(meta.createdAt) : undefined;
