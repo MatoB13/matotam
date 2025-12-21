@@ -1,19 +1,73 @@
 // Shared burn logic for matotam NFTs
 // Builds and submits a burn transaction and returns tx hash.
 
-export async function burnMatotamNFT(params: {
+type BurnParams = {
   lucid: any;
   walletAddress: string;
-  unit: string;
-  fromAddrMeta: string;
-  toAddrMeta: string;
   devAddress: string;
-}): Promise<string> {
-  const { lucid, walletAddress, unit, fromAddrMeta, toAddrMeta, devAddress } =
-    params;
+
+  // NEW (preferred): pass Blockfrost /assets/{unit} JSON
+  asset?: any;
+
+  // Backward-compatible (old API)
+  unit?: string;
+  fromAddrMeta?: string;
+  toAddrMeta?: string;
+};
+
+function joinSegments(v: any): string | undefined {
+  if (!v) return undefined;
+  if (Array.isArray(v)) return v.map(String).join("");
+  if (typeof v === "string") return v;
+  return undefined;
+}
+
+function extractFromToFromAsset(asset: any): {
+  unit?: string;
+  fromAddrMeta?: string;
+  toAddrMeta?: string;
+} {
+  if (!asset) return {};
+
+  // Blockfrost asset id (unit) is in field "asset"
+  const unit = typeof asset.asset === "string" ? asset.asset : undefined;
+
+  const meta = asset.onchain_metadata ?? asset.metadata ?? null;
+
+  // We support multiple metadata shapes (same as inbox.ts)
+  const fromAddrMeta =
+    joinSegments(meta?.Sender) ??
+    joinSegments(meta?.fromAddressSegments) ??
+    (typeof meta?.fromAddress === "string" ? String(meta.fromAddress) : undefined);
+
+  const toAddrMeta =
+    joinSegments(meta?.Receiver) ??
+    joinSegments(meta?.toAddressSegments) ??
+    (typeof meta?.toAddress === "string" ? String(meta.toAddress) : undefined);
+
+  return { unit, fromAddrMeta, toAddrMeta };
+}
+
+export async function burnMatotamNFT(params: BurnParams): Promise<string> {
+  const { lucid, walletAddress, devAddress } = params;
+
+  // Derive unit/from/to either from asset or from explicit params
+  const extracted = params.asset ? extractFromToFromAsset(params.asset) : {};
+  const unit = params.unit ?? extracted.unit;
+  const fromAddrMeta = params.fromAddrMeta ?? extracted.fromAddrMeta;
+  const toAddrMeta = params.toAddrMeta ?? extracted.toAddrMeta;
+
+  if (!unit) {
+    throw new Error("missing_unit");
+  }
+  if (!fromAddrMeta || !toAddrMeta) {
+    // We need both addresses to build the native-script policy and authorization logic
+    throw new Error("missing_from_to");
+  }
 
   const myAddr = await lucid.wallet.address();
   const myCred = lucid.utils.paymentCredentialOf(myAddr);
+
   const fromCred = lucid.utils.paymentCredentialOf(fromAddrMeta);
   const toCred = lucid.utils.paymentCredentialOf(toAddrMeta);
   const matotamCred = lucid.utils.paymentCredentialOf(devAddress);
