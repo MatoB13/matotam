@@ -1,82 +1,120 @@
-// lib/rarity.ts
-// Generates rarity code YxxDxxx with full leap-year accuracy,
-// based on a fixed project start date.
+// Backward-compatible rarity info:
+// - getRarityInfo(senderAddr, recipientAddr)  => pair-based deterministic code
+// - getRarityInfo(mintDate?)                  => date-based code (your newer logic)
 
-export function getProjectStartDate(): Date {
-  // Day 0 of the project (UTC)
-  // You can adjust this later or move to an ENV variable.
-  return new Date(Date.UTC(2026, 0, 1, 0, 0, 0)); 
-  // Reminder: month index is 0-based → 10 = November
+type RarityInfo = {
+  code: string;        // legacy field used across the app
+  rarityCode: string;  // explicit field name
+  projectYear?: number;
+  dayInYear?: number;
+  pairHash?: number;
+};
+
+function hashToUint32(input: string): number {
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
-export function getRarityInfo(mintDate: Date = new Date()) {
+function formatRarityFromPair(senderAddr: string, recipientAddr: string): RarityInfo {
+  const seed = `${senderAddr}|${recipientAddr}`;
+  const h = hashToUint32(seed);
+
+  // Map to YxxDxxx
+  const yy = h % 100;                 // 00..99
+  const ddd = Math.floor(h / 100) % 1000; // 000..999
+
+  const code = `Y${yy.toString().padStart(2, "0")}D${ddd.toString().padStart(3, "0")}`;
+
+  return {
+    code,
+    rarityCode: code,
+    pairHash: h,
+  };
+}
+
+// Overloads
+export function getRarityInfo(mintDate?: Date): RarityInfo;
+export function getRarityInfo(senderAddr: string, recipientAddr: string): RarityInfo;
+
+// Implementation
+export function getRarityInfo(a: any = new Date(), b?: any): RarityInfo {
+  // Pair-based mode (legacy)
+  if (typeof a === "string" && typeof b === "string") {
+    return formatRarityFromPair(a, b);
+  }
+
+  // Date-based mode (your current implementation)
+  const mintDate: Date = a instanceof Date ? a : new Date();
   const projectStart = getProjectStartDate();
 
   // Normalize both dates to UTC midnight
-  const mint = new Date(Date.UTC(
-    mintDate.getUTCFullYear(),
-    mintDate.getUTCMonth(),
-    mintDate.getUTCDate(),
-    0, 0, 0
-  ));
+  const mint = new Date(
+    Date.UTC(
+      mintDate.getUTCFullYear(),
+      mintDate.getUTCMonth(),
+      mintDate.getUTCDate(),
+      0,
+      0,
+      0
+    )
+  );
 
-  const start = new Date(Date.UTC(
-    projectStart.getUTCFullYear(),
-    projectStart.getUTCMonth(),
-    projectStart.getUTCDate(),
-    0, 0, 0
-  ));
+  const start = new Date(
+    Date.UTC(
+      projectStart.getUTCFullYear(),
+      projectStart.getUTCMonth(),
+      projectStart.getUTCDate(),
+      0,
+      0,
+      0
+    )
+  );
 
-  // 🔒 VŠETKO PRED ZAČIATKOM PROJEKTU → Y00D000
+  // Everything before project start -> Y00D000
   if (mint < start) {
-    return {
-      projectYear: 0,
-      dayInYear: 0,
-      rarityCode: "Y00D000",
-    };
+    const code = "Y00D000";
+    return { projectYear: 0, dayInYear: 0, code, rarityCode: code };
   }
 
   // Candidate year difference
   const candidateYear = mint.getUTCFullYear() - start.getUTCFullYear();
 
   // Anniversary of the candidate project year
-  const anniversary = new Date(Date.UTC(
-    start.getUTCFullYear() + candidateYear,
-    start.getUTCMonth(),
-    start.getUTCDate(),
-    0, 0, 0
-  ));
+  const anniversary = new Date(
+    Date.UTC(
+      start.getUTCFullYear() + candidateYear,
+      start.getUTCMonth(),
+      start.getUTCDate(),
+      0,
+      0,
+      0
+    )
+  );
 
-  // If the mint date is before this year's anniversary, year hasn't rolled over yet
-  let projectYear = candidateYear;
-  if (mint < anniversary) {
-    projectYear = candidateYear - 1;
-  }
+  const projectYear = mint < anniversary ? candidateYear - 1 : candidateYear;
 
-  // Start of the selected project year
-  const yearStart = new Date(Date.UTC(
-    start.getUTCFullYear() + projectYear,
-    start.getUTCMonth(),
-    start.getUTCDate(),
-    0, 0, 0
-  ));
+  const yearStart = new Date(
+    Date.UTC(
+      start.getUTCFullYear() + projectYear,
+      start.getUTCMonth(),
+      start.getUTCDate(),
+      0,
+      0,
+      0
+    )
+  );
 
-  // Day index within this project year
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const dayInYear = Math.floor((mint.getTime() - yearStart.getTime()) / msPerDay);
+  const dayInYear = Math.floor((mint.getTime() - yearStart.getTime()) / (24 * 3600 * 1000));
 
-  // Build rarity code
-  const rarityCode =
-    "Y" + String(projectYear).padStart(2, "0") +
-    "D" + String(dayInYear).padStart(3, "0");
+  const yy = Math.max(0, projectYear) % 100;
+  const ddd = Math.max(0, dayInYear) % 1000;
 
-  return {
-    projectYear,
-    dayInYear,
-    rarityCode,
-  };
-}
+  const code = `Y${yy.toString().padStart(2, "0")}D${ddd.toString().padStart(3, "0")}`;
 
-export function getRarityCode(mintDate?: Date) {
-  return getRarityInfo(mintDate).rarityCode;
+  return { projectYear, dayInYear, code, rarityCode: code };
 }
