@@ -6,9 +6,26 @@ export const WALLET_LABELS: Record<string, string> = {
   flint: "Flint",
 };
 
+// Prefer explicit env, otherwise choose a safe default based on NEXT_PUBLIC_NETWORK.
+// IMPORTANT: Do not silently default prod to preprod.
+const NETWORK_ENV = (process.env.NEXT_PUBLIC_NETWORK || "").toLowerCase();
+
+export const CARDANO_NETWORK = (() => {
+  if (NETWORK_ENV === "mainnet") return "Mainnet";
+  if (NETWORK_ENV === "preview") return "Preview";
+  if (NETWORK_ENV === "preprod") return "Preprod";
+  // Safer default for local dev (change if you want):
+  return "Preprod";
+})() as "Mainnet" | "Preprod" | "Preview";
+
 export const BLOCKFROST_API =
   process.env.NEXT_PUBLIC_BLOCKFROST_API?.trim() ||
-  "https://cardano-preprod.blockfrost.io/api/v0";
+  (CARDANO_NETWORK === "Mainnet"
+    ? "https://cardano-mainnet.blockfrost.io/api/v0"
+    : CARDANO_NETWORK === "Preview"
+    ? "https://cardano-preview.blockfrost.io/api/v0"
+    : "https://cardano-preprod.blockfrost.io/api/v0");
+
 
 export const BLOCKFROST_KEY =
   process.env.NEXT_PUBLIC_BLOCKFROST_KEY?.trim() || "";
@@ -26,9 +43,3 @@ export const DEV_ADDRESS =
   "addr1q9nfaxtq4q7qycu6qpv8rhuanshjhxrpa84lv99ng2pxeg9dwtkpzdtlhxpjr3aahkn080zw5r02p9zwx3nssxxr995syhd2ku", // matodux
 ];
 
-export const CARDANO_NETWORK = (() => {
-  const n = (process.env.NEXT_PUBLIC_NETWORK || "").toLowerCase();
-  if (n === "mainnet") return "Mainnet";
-  if (n === "preview") return "Preview";
-  return "Preprod";
-})() as "Mainnet" | "Preprod" | "Preview";

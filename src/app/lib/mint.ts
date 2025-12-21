@@ -8,9 +8,9 @@ import { getOrnamentParamsForPair } from "./swirlEngine";
 import { getSigilSvgForAddress, getSigilParamsForAddress } from "./sigilEngine";
 import type { EncryptedPayload } from "./encryption";
 
-
 /**
- * Cardano tx metadata does not allow floats. Convert any non-integer numbers to strings.
+ * Cardano tx metadata does not allow floats.
+ * Convert any non-integer numbers to strings.
  * Also removes undefined/null and sanitizes nested arrays/objects.
  */
 function sanitizeMetadata(value: any): any {
@@ -53,14 +53,13 @@ function rand2(): string {
     crypto.getRandomValues(a);
     return ((a[0] % 36).toString(36) + (a[1] % 36).toString(36)).toLowerCase();
   } catch {
-    // Fallback (should not happen in modern browsers)
     const n = Math.floor(Math.random() * 1296); // 36^2
     return n.toString(36).padStart(2, "0").slice(-2).toLowerCase();
   }
 }
 
 /**
- * Decode asset_name hex from Blockfrost (hex-encoded bytes) into text.
+ * Decode asset_name hex from Blockfrost into text.
  */
 function hexToText(hex: string): string {
   try {
@@ -74,14 +73,41 @@ function hexToText(hex: string): string {
 }
 
 /**
+ * Local monotonic sequence cache (per policy + prefix).
+ * This avoids "stuck at 001" when Blockfrost indexing is delayed or when the
+ * policy asset list endpoint returns an empty set temporarily.
+ */
+function getSeqCacheKey(policyId: string, prefix: string): string {
+  return `matotam_seq:${policyId}:${prefix}`;
+}
+
+function readCachedSeq(policyId: string, prefix: string): number {
+  try {
+    if (typeof window === "undefined") return 0;
+    const raw = localStorage.getItem(getSeqCacheKey(policyId, prefix));
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeCachedSeq(policyId: string, prefix: string, seq: number) {
+  try {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(getSeqCacheKey(policyId, prefix), String(seq));
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Best-effort: read policy assets from Blockfrost and compute next sequence number
  * for a given naming prefix.
  *
-  // Naming format:
-  //   matotam-sss-rrr-NNN-xx
-  // (legacy without -xx also supported: matotam-sss-rrr-NNN)
-
- * where prefix = "matotam-sss-rrr-"
+ * Naming formats supported:
+ * - legacy:  matotam-sss-rrr-NNN
+ * - current: matotam-sss-rrr-NNN-xx
  *
  * Returns null when Blockfrost is not configured or call fails.
  */
@@ -98,7 +124,7 @@ async function getNextSeqFromBlockfrost(args: {
 
   let maxSeq = -1;
 
-  // Limit pages to keep it fast; this is best-effort anyway.
+  // Limit pages to keep it fast; best-effort only.
   for (let page = 1; page <= 10; page++) {
     const resp = await fetch(
       `${blockfrostApi}/assets/policy/${policyId}?page=${page}&count=100`,
@@ -116,26 +142,22 @@ async function getNextSeqFromBlockfrost(args: {
       const name = hexToText(assetNameHex);
       if (!name.startsWith(prefix)) continue;
 
-            // Accept both legacy and current formats:
-      // - legacy: matotam-sss-rrr-NNN
-      // - current: matotam-sss-rrr-NNN-xx
+      // name: matotam-sss-rrr-NNN(-xx)
       const parts = name.split("-");
       if (parts.length < 4) continue;
 
       const seqPart = parts[3]; // NNN
       const n = Number(seqPart);
 
-      // We use 3-digit sequence: 001..999
+      // 3-digit sequence: 001..999
       if (Number.isInteger(n) && n >= 1 && n <= 999) {
         if (n > maxSeq) maxSeq = n;
       }
-
     }
 
     if (rows.length < 100) break;
   }
 
-  // If nothing found, start at 1.
   return maxSeq >= 0 ? maxSeq + 1 : 1;
 }
 
@@ -157,9 +179,11 @@ export async function buildMatotamMintData(params: {
 
   const isEncrypted = !!encryptedPayload;
 
-  // Deterministic rarity + ornament + sigil
+  // Date-based time rarity code (YxxDxxx)
   const rarityInfo = getRarityInfo(new Date());
   const rarityCode = rarityInfo.code;
+
+  // Deterministic ornament + sigil
   const ornamentParams = getOrnamentParamsForPair(senderAddr, recipientAddress);
 
   const sigilParams = getSigilParamsForAddress(senderAddr);
@@ -180,30 +204,38 @@ export async function buildMatotamMintData(params: {
   const threadId = `matotam-${senderShort}-${receiverShort}`;
 
   // Asset naming convention:
-  // matotam-<last3sender>-<last3receiver>-<order4>-<rand2>
+  // matotam-<last3sender>-<last3receiver>-<NNN>-<rand2>
   const prefix = `matotam-${senderShort}-${receiverShort}-`;
 
-  // Prefer Blockfrost-based order, but handle indexing delays with a 3-minute bucket.
-  let seq = await getNextSeqFromBlockfrost({
+  // 1) Try Blockfrost-based next sequence
+  let seqFromBf: number | null = await getNextSeqFromBlockfrost({
     blockfrostApi: BLOCKFROST_API,
     blockfrostKey: BLOCKFROST_KEY,
     policyId,
     prefix,
   });
 
-  if (seq === null) {
-    // Fallback: 3-minute time bucket to approximate order when Blockfrost hasn't indexed yet.
-    // The rand2 suffix ensures uniqueness if multiple mints happen within the same bucket.
-    const bucket = Math.floor(Date.now() / 180000); // 3 minutes
-    seq = (bucket % 10000) + 1;
-  }
+  // 2) Always apply local monotonic cache to avoid "stuck at 001"
+  const cached = readCachedSeq(policyId, prefix);
+  const nextFromCache = cached + 1;
+
+  // Choose the best available seq
+  // - if BF returns null, use cache
+  // - if BF returns a number, use max(BF, cache+1) to keep monotonic locally
+  let seq = seqFromBf === null ? nextFromCache : Math.max(seqFromBf, nextFromCache);
+
+  // Keep within 001..999 (your requirement)
+  if (!Number.isInteger(seq) || seq < 1) seq = 1;
+  if (seq > 999) seq = 999;
+
+  // Persist cache immediately (so even if BF lags, next mint will increment)
+  writeCachedSeq(policyId, prefix, seq);
 
   const seqStr = String(seq).padStart(3, "0");
   const suffix = rand2();
   const assetNameBase = `${prefix}${seqStr}-${suffix}`;
 
-
-  // Render SVG bubble
+  // Render SVG bubble (on-chain)
   const lines = wrapMessageForBubble(message);
   const bubbleSvg = buildBubbleSvg(lines, rarityCode, ornamentParams, sigilSvg);
   const dataUri = svgToDataUri(bubbleSvg);
@@ -216,7 +248,7 @@ export async function buildMatotamMintData(params: {
   // QuickBurn Id
   const quickBurnId = encodeUnitToQuickBurnId(unit);
 
-  // Safe message text for on-chain metadata
+  // Safe message text for metadata
   const ascii = message.trim();
   const safeMessageForOnchain =
     ascii.length > 256 ? ascii.slice(0, 253) + "..." : ascii;
@@ -237,6 +269,7 @@ export async function buildMatotamMintData(params: {
     makeSafeMetadataText(senderAddr),
     64
   );
+
   const toAddressSegments = splitAsciiIntoSegments(
     makeSafeMetadataText(recipientAddress),
     64
@@ -247,7 +280,7 @@ export async function buildMatotamMintData(params: {
     64
   );
 
-  // Always chunk the image data; do not drop it based on length.
+  // Always chunk image data; never drop it based on length.
   const imageChunks = splitIntoSegments(dataUri, 64);
 
   const baseFields: any = {
@@ -255,7 +288,7 @@ export async function buildMatotamMintData(params: {
     quickBurnId: splitAsciiIntoSegments(quickBurnId, 64),
     rarity: rarityCode,
 
-    // Human-readable hints
+    // Human-readable
     name: assetNameBase,
     description,
     source: "https://matotam.io",
@@ -264,7 +297,6 @@ export async function buildMatotamMintData(params: {
     // Threading
     Thread: threadId,
     "Thread index": seqStr,
-
     createdAt: new Date().toISOString(),
 
     // Parties
