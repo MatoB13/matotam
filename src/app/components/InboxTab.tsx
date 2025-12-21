@@ -17,7 +17,7 @@ type InboxTabProps = {
   needsInboxPolicy: boolean;
 
   burnMessage: (unit: string) => void;
-  onReply: (address: string) => void;
+  onReply: (msg: MatotamMessage) => void;
 };
 
 export default function InboxTab({
@@ -207,7 +207,7 @@ export default function InboxTab({
                   {m.fromAddress && (
                     <button
                       type="button"
-                      onClick={() => onReply(m.fromAddress!)}
+                      onClick={() => onReply(m)}
                       className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200"
                     >
                       ↩ Reply

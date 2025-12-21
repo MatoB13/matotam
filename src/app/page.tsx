@@ -488,17 +488,21 @@ async function sendMessageAsNFT() {
   // REPLY HANDLER (FROM INBOX TAB)
   // -------------------------------------------------------------------
 
-  function handleReply(replyTo: MatotamMessage) {
-    setActiveTab("send");
-    if (replyTo.senderAddress) {
-      setToAddress(replyTo.senderAddress);
-    }
-    if (replyTo.plaintext) {
-      setMessage(`RE: ${replyTo.plaintext.slice(0, 200)}`);
-    } else {
-      setMessage("");
-    }
+function handleReply(replyTo: MatotamMessage) {
+  setActiveTab("send");
+
+  if (replyTo.fromAddress) {
+    setToAddress(replyTo.fromAddress);
   }
+
+  if (replyTo.fullText) {
+    setMessage(`RE: ${replyTo.fullText.slice(0, 200)}`);
+  } else {
+    setMessage("RE: ");
+  }
+}
+
+
 
   // ---------- UI ------------------------------------------------------
 
