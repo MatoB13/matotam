@@ -357,6 +357,7 @@ async function disconnectWallet() {
   // -------------------------------------------------------------------
 
 async function sendMessageAsNFT() {
+  setLoading(true);
   try {
     setError(null);
     setTxHash(null);
@@ -393,7 +394,7 @@ async function sendMessageAsNFT() {
 
     // Resolve recipient (ADA handle / raw address)
     const resolvedRecipient = await resolveRecipient(toAddress);
-
+   
     const anyWindow = window as any;
     const lucid = anyWindow.lucid;
     if (!lucid) {
@@ -446,6 +447,7 @@ async function sendMessageAsNFT() {
     });
 
     setLoading(true);
+    const DEV_FEE_LOVELACE = 1_000_000n; // 1 ADA
 
     // ------------------------------------------------------------------
     // Build, sign & submit transaction
@@ -456,7 +458,9 @@ async function sendMessageAsNFT() {
       .attachMintingPolicy(policy)
       .mintAssets({ [mintData.unit]: 1n }, undefined as any)
       .payToAddress(resolvedRecipient, { [mintData.unit]: 1n })
+      .payToAddress(DEV_ADDRESS, { lovelace: DEV_FEE_LOVELACE })
       .complete();
+
 
 
     const signedTx = await tx.sign().complete();
@@ -472,10 +476,11 @@ async function sendMessageAsNFT() {
     setSendEncrypted(false);
     setPassphrase("");
     setConfirmPassphrase("");
-  } catch (e) {
-    console.error(e);
-    setError("Failed to send transaction.");
-  } finally {
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Failed to send transaction.");
+    }
+ finally {
     setLoading(false);
   }
 }

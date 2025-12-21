@@ -8,6 +8,7 @@ import { getOrnamentParamsForPair } from "./swirlEngine";
 import { getSigilSvgForAddress, getSigilParamsForAddress } from "./sigilEngine";
 import type { EncryptedPayload } from "./encryption";
 
+
 /**
  * Cardano tx metadata does not allow floats. Convert any non-integer numbers to strings.
  * Also removes undefined/null and sanitizes nested arrays/objects.
@@ -76,8 +77,10 @@ function hexToText(hex: string): string {
  * Best-effort: read policy assets from Blockfrost and compute next sequence number
  * for a given naming prefix.
  *
- * Naming format:
- *   matotam-sss-rrr-NNNN-xx
+  // Naming format:
+  //   matotam-sss-rrr-NNN-xx
+  // (legacy without -xx also supported: matotam-sss-rrr-NNN)
+
  * where prefix = "matotam-sss-rrr-"
  *
  * Returns null when Blockfrost is not configured or call fails.
@@ -113,15 +116,20 @@ async function getNextSeqFromBlockfrost(args: {
       const name = hexToText(assetNameHex);
       if (!name.startsWith(prefix)) continue;
 
-      // Expected: matotam-sss-rrr-NNNN-xx
+            // Accept both legacy and current formats:
+      // - legacy: matotam-sss-rrr-NNN
+      // - current: matotam-sss-rrr-NNN-xx
       const parts = name.split("-");
-      if (parts.length < 5) continue;
+      if (parts.length < 4) continue;
 
-      const seqPart = parts[3];
+      const seqPart = parts[3]; // NNN
       const n = Number(seqPart);
-      if (Number.isInteger(n) && n >= 0 && n <= 9999) {
+
+      // We use 3-digit sequence: 001..999
+      if (Number.isInteger(n) && n >= 1 && n <= 999) {
         if (n > maxSeq) maxSeq = n;
       }
+
     }
 
     if (rows.length < 100) break;
@@ -150,9 +158,8 @@ export async function buildMatotamMintData(params: {
   const isEncrypted = !!encryptedPayload;
 
   // Deterministic rarity + ornament + sigil
-  const rarityInfo = getRarityInfo(senderAddr, recipientAddress);
+  const rarityInfo = getRarityInfo(new Date());
   const rarityCode = rarityInfo.code;
-
   const ornamentParams = getOrnamentParamsForPair(senderAddr, recipientAddress);
 
   const sigilParams = getSigilParamsForAddress(senderAddr);
@@ -191,9 +198,10 @@ export async function buildMatotamMintData(params: {
     seq = (bucket % 10000) + 1;
   }
 
-  const seqStr = String(seq).padStart(4, "0");
+  const seqStr = String(seq).padStart(3, "0");
   const suffix = rand2();
   const assetNameBase = `${prefix}${seqStr}-${suffix}`;
+
 
   // Render SVG bubble
   const lines = wrapMessageForBubble(message);

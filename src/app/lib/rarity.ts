@@ -1,6 +1,6 @@
 // Backward-compatible rarity info:
 // - getRarityInfo(senderAddr, recipientAddr)  => pair-based deterministic code
-// - getRarityInfo(mintDate?)                  => date-based code (your newer logic)
+// - getRarityInfo(mintDate?)                  => date-based code (epoch-based, per your agreement)
 
 type RarityInfo = {
   code: string;        // legacy field used across the app
@@ -10,13 +10,10 @@ type RarityInfo = {
   pairHash?: number;
 };
 
-function getProjectStartDate(): Date {
-  // "Genesis" date for date-based rarity.
-  // IMPORTANT: if you previously used a different start date,
-  // set it here to keep codes stable.
-  return new Date(Date.UTC(2026, 0, 1, 0, 0, 0)); // 2026-01-01 UTC
-}
-
+// Matotam epoch (the day the "time code" starts progressing).
+// Everything BEFORE this date is pinned to Y00D000.
+// Starting FROM this date, we increment day counter daily.
+const MATOTAM_EPOCH_UTC = new Date(Date.UTC(2026, 0, 1, 0, 0, 0)); // 2026-01-01T00:00:00Z
 
 function hashToUint32(input: string): number {
   // FNV-1a 32-bit
@@ -28,21 +25,59 @@ function hashToUint32(input: string): number {
   return h >>> 0;
 }
 
+function formatCode(yy: number, ddd: number): string {
+  const code = `Y${yy.toString().padStart(2, "0")}D${ddd.toString().padStart(3, "0")}`;
+  return code;
+}
+
 function formatRarityFromPair(senderAddr: string, recipientAddr: string): RarityInfo {
+  // Pair-based code is deterministic and does NOT depend on date.
   const seed = `${senderAddr}|${recipientAddr}`;
   const h = hashToUint32(seed);
 
-  // Map to YxxDxxx
-  const yy = h % 100;                 // 00..99
+  // Map hash -> YxxDxxx
+  const yy = h % 100; // 00..99
   const ddd = Math.floor(h / 100) % 1000; // 000..999
 
-  const code = `Y${yy.toString().padStart(2, "0")}D${ddd.toString().padStart(3, "0")}`;
+  const code = formatCode(yy, ddd);
 
   return {
     code,
     rarityCode: code,
     pairHash: h,
   };
+}
+
+function normalizeToUtcMidnight(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
+}
+
+function formatRarityFromDate(mintDate: Date): RarityInfo {
+  const mint = normalizeToUtcMidnight(mintDate);
+  const epoch = MATOTAM_EPOCH_UTC;
+
+  // Agreement: everything before epoch is pinned to Y00D000
+  if (mint.getTime() < epoch.getTime()) {
+    const code = "Y00D000";
+    return { projectYear: 0, dayInYear: 0, code, rarityCode: code };
+  }
+
+  // Agreement: day index starts at 1 on 2026-01-01
+  // diffDays = 0 on epoch day; we want D001 on epoch day => use +1
+  const diffMs = mint.getTime() - epoch.getTime();
+  const diffDays = Math.floor(diffMs / (24 * 3600 * 1000)) + 1;
+
+  // Agreement: year = floor(diffDays / 365), day = diffDays % 365
+  // This intentionally ignores leap years to keep deterministic, simple progression.
+  const projectYear = Math.floor(diffDays / 365);
+  const dayInYear = diffDays % 365;
+
+  const yy = Math.max(0, projectYear) % 100;
+  const ddd = Math.max(0, dayInYear) % 1000;
+
+  const code = formatCode(yy, ddd);
+
+  return { projectYear, dayInYear, code, rarityCode: code };
 }
 
 // Overloads
@@ -56,73 +91,7 @@ export function getRarityInfo(a: any = new Date(), b?: any): RarityInfo {
     return formatRarityFromPair(a, b);
   }
 
-  // Date-based mode (your current implementation)
+  // Date-based mode (epoch-based per agreement)
   const mintDate: Date = a instanceof Date ? a : new Date();
-  const projectStart = getProjectStartDate();
-
-  // Normalize both dates to UTC midnight
-  const mint = new Date(
-    Date.UTC(
-      mintDate.getUTCFullYear(),
-      mintDate.getUTCMonth(),
-      mintDate.getUTCDate(),
-      0,
-      0,
-      0
-    )
-  );
-
-  const start = new Date(
-    Date.UTC(
-      projectStart.getUTCFullYear(),
-      projectStart.getUTCMonth(),
-      projectStart.getUTCDate(),
-      0,
-      0,
-      0
-    )
-  );
-
-  // Everything before project start -> Y00D000
-  if (mint < start) {
-    const code = "Y00D000";
-    return { projectYear: 0, dayInYear: 0, code, rarityCode: code };
-  }
-
-  // Candidate year difference
-  const candidateYear = mint.getUTCFullYear() - start.getUTCFullYear();
-
-  // Anniversary of the candidate project year
-  const anniversary = new Date(
-    Date.UTC(
-      start.getUTCFullYear() + candidateYear,
-      start.getUTCMonth(),
-      start.getUTCDate(),
-      0,
-      0,
-      0
-    )
-  );
-
-  const projectYear = mint < anniversary ? candidateYear - 1 : candidateYear;
-
-  const yearStart = new Date(
-    Date.UTC(
-      start.getUTCFullYear() + projectYear,
-      start.getUTCMonth(),
-      start.getUTCDate(),
-      0,
-      0,
-      0
-    )
-  );
-
-  const dayInYear = Math.floor((mint.getTime() - yearStart.getTime()) / (24 * 3600 * 1000));
-
-  const yy = Math.max(0, projectYear) % 100;
-  const ddd = Math.max(0, dayInYear) % 1000;
-
-  const code = `Y${yy.toString().padStart(2, "0")}D${ddd.toString().padStart(3, "0")}`;
-
-  return { projectYear, dayInYear, code, rarityCode: code };
+  return formatRarityFromDate(mintDate);
 }

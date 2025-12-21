@@ -10,32 +10,52 @@ export function looksLikeAdaHandle(value: string): boolean {
   if (!v) return false;
 
   if (v.startsWith("$")) return true;
-  if (
-    !v.startsWith("addr") &&
-    !v.startsWith("stake") &&
-    !v.includes(" ")
-  ) {
+  if (!v.startsWith("addr") && !v.startsWith("stake") && !v.includes(" ")) {
     return true;
   }
   return false;
 }
 
-// Resolve ADA Handle to a base (payment) address.
-// 1) Try handle.me → get stake → get associated addresses
-// 2) Try fallback: resolve OG Handle NFT by policyId + assetName variants
-export async function resolveAdaHandle(
-  handle: string
-): Promise<string | null> {
+/**
+ * Resolve ADA Handle to a base (payment) address.
+ *
+ * IMPORTANT:
+ * - In the browser (client), do NOT call handle.me or Blockfrost directly (CORS / rate limits / extensions).
+ *   Instead, call our server route: /api/resolve-handle
+ * - On the server (route code), you can call handle.me + Blockfrost safely.
+ */
+export async function resolveAdaHandle(handle: string): Promise<string | null> {
   try {
     const raw = handle.trim();
     const base = raw.startsWith("$") ? raw.slice(1) : raw;
     const name = base.trim();
-
     if (!name) return null;
 
-    //
-    // 1) handle.me
-    //
+    // ----------------------------
+    // CLIENT: always call our API route (avoids CORS)
+    // ----------------------------
+    if (typeof window !== "undefined") {
+      const resp = await fetch(
+        `/api/resolve-handle?handle=${encodeURIComponent(name)}`,
+        { cache: "no-store" }
+      );
+
+      if (!resp.ok) return null;
+
+      const data: any = await resp.json();
+      const addr = data?.address;
+
+      if (data?.ok === true && typeof addr === "string" && addr.startsWith("addr")) {
+        return addr;
+      }
+      return null;
+    }
+
+    // ----------------------------
+    // SERVER: best-effort direct resolution (should mainly run inside API route)
+    // ----------------------------
+
+    // 1) handle.me -> stake -> Blockfrost account addresses -> first base addr
     try {
       const apiResp = await fetch(
         `https://api.handle.me/handles/${encodeURIComponent(name)}`
@@ -43,10 +63,11 @@ export async function resolveAdaHandle(
 
       if (apiResp.ok) {
         const data: any = await apiResp.json();
-        const stake = data?.holder; // stake address
+        const stake = data?.holder;
 
-        // Prefer resolving via stake1... → Blockfrost
         if (typeof stake === "string" && stake.startsWith("stake")) {
+          if (!BLOCKFROST_API || !BLOCKFROST_KEY) return null;
+
           const bfResp = await fetch(
             `${BLOCKFROST_API}/accounts/${stake}/addresses`,
             { headers: { project_id: BLOCKFROST_KEY } }
@@ -54,7 +75,6 @@ export async function resolveAdaHandle(
 
           if (bfResp.ok) {
             const addrs: any[] = await bfResp.json();
-
             const baseAddr = addrs.find(
               (a) =>
                 a &&
@@ -62,20 +82,16 @@ export async function resolveAdaHandle(
                 a.address.startsWith("addr")
             );
 
-            if (baseAddr?.address) {
-              return baseAddr.address as string;
-            }
+            if (baseAddr?.address) return baseAddr.address as string;
           }
         }
       }
-    } catch (err) {
-      console.warn("handle.me resolve error", err);
+    } catch {
+      // ignore and continue to fallback
     }
 
-    //
-    // 2) Fallback: find OG ADA Handle NFT by policyId + assetName variants
-    //
-    const { toHex } = await import("lucid-cardano");
+    // 2) Fallback: resolve OG ADA Handle NFT by policyId + assetName variants
+    if (!BLOCKFROST_API || !BLOCKFROST_KEY || !ADA_HANDLE_POLICY_ID) return null;
 
     const variants = Array.from(
       new Set([
@@ -87,13 +103,16 @@ export async function resolveAdaHandle(
 
     for (const variant of variants) {
       const bytes = new TextEncoder().encode(variant);
-      const assetNameHex = toHex(bytes).toLowerCase();
+      const assetNameHex = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .toLowerCase();
+
       const unit = ADA_HANDLE_POLICY_ID + assetNameHex;
 
-      const resp = await fetch(
-        `${BLOCKFROST_API}/assets/${unit}/addresses`,
-        { headers: { project_id: BLOCKFROST_KEY } }
-      );
+      const resp = await fetch(`${BLOCKFROST_API}/assets/${unit}/addresses`, {
+        headers: { project_id: BLOCKFROST_KEY },
+      });
 
       if (!resp.ok) continue;
 
@@ -113,17 +132,15 @@ export async function resolveAdaHandle(
   }
 }
 
-// Reverse lookup: try to find an ADA Handle owned by the given address.
-//
-// Returns:
-// - "$handle" if we can confidently derive one
-// - null if not found / not resolvable
-export async function reverseLookupAdaHandle(
-  address: string
-): Promise<string | null> {
+/**
+ * Reverse lookup: try to find an ADA Handle owned by the given address.
+ * Note: This can be expensive; keep it best-effort.
+ */
+export async function reverseLookupAdaHandle(address: string): Promise<string | null> {
   try {
     const addr = address.trim();
     if (!addr || !addr.startsWith("addr")) return null;
+    if (!BLOCKFROST_API || !BLOCKFROST_KEY || !ADA_HANDLE_POLICY_ID) return null;
 
     // 1) Convert base address -> stake address via Blockfrost
     const addrResp = await fetch(`${BLOCKFROST_API}/addresses/${addr}`, {
@@ -135,12 +152,9 @@ export async function reverseLookupAdaHandle(
     const addrData: any = await addrResp.json();
     const stake = addrData?.stake_address;
 
-    if (typeof stake !== "string" || !stake.startsWith("stake")) {
-      return null;
-    }
+    if (typeof stake !== "string" || !stake.startsWith("stake")) return null;
 
-    // 2) List assets held by that stake account
-    // NOTE: This is paginated on Blockfrost; we fetch a few pages defensively.
+    // 2) List assets held by that stake account (paginated)
     let page = 1;
     const maxPages = 5;
 
@@ -155,31 +169,25 @@ export async function reverseLookupAdaHandle(
       const assets: any[] = await assetsResp.json();
       if (!Array.isArray(assets) || assets.length === 0) break;
 
-      // 3) Find an asset under ADA Handle policy
       const hit = assets.find((a) => {
         const unit = a?.unit;
         return typeof unit === "string" && unit.startsWith(ADA_HANDLE_POLICY_ID);
       });
 
       if (hit?.unit && typeof hit.unit === "string") {
-        // unit = policyId + assetNameHex
         const assetNameHex = hit.unit.slice(ADA_HANDLE_POLICY_ID.length);
 
-        // Convert hex -> text (best-effort)
         try {
           const parts: string[] | null = assetNameHex.match(/.{1,2}/g);
           if (!parts) return null;
 
-          const bytes: number[] = parts.map((h: string) => parseInt(h, 16));
-
-          if (bytes.some((n: number) => Number.isNaN(n))) return null;
-
+          const bytes = parts.map((h) => parseInt(h, 16));
+          if (bytes.some((n) => Number.isNaN(n))) return null;
 
           const text = new TextDecoder().decode(new Uint8Array(bytes));
           const name = text?.trim();
           if (!name) return null;
 
-          // Return normalized handle with "$"
           return name.startsWith("$") ? name : `$${name}`;
         } catch {
           return null;
@@ -195,4 +203,3 @@ export async function reverseLookupAdaHandle(
     return null;
   }
 }
-
