@@ -17,6 +17,7 @@ import {
 } from "./svgBubble";
 import { getRarityInfo } from "./rarity";
 import { getOrnamentParamsForPair } from "./swirlEngine";
+import { getSigilSvgForAddress, getSigilParamsForAddress } from "./sigilEngine";
 // NEW: import encrypted payload type
 import type { EncryptedPayload } from "./encryption";
 
@@ -26,7 +27,6 @@ function bytesToHex(bytes: Uint8Array): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
-
 
 type MintBuildResult = {
   unit: string;
@@ -39,7 +39,7 @@ export async function buildMatotamMintData(params: {
   recipientAddress: string;
   message: string;
   policyId: string;
-  encryptedPayload?: EncryptedPayload; // NEW: optional encrypted payload
+  encryptedPayload?: EncryptedPayload; // optional encrypted payload
 }): Promise<MintBuildResult> {
   const {
     senderAddr,
@@ -49,9 +49,20 @@ export async function buildMatotamMintData(params: {
     encryptedPayload,
   } = params;
 
- 
+  // Derive sigil parameters from sender address for metadata
+  const sigilParams = getSigilParamsForAddress(senderAddr);
+
+  const sigilMeta = {
+    color: sigilParams.color.id,
+    colorProbability: sigilParams.color.probability, // 0.01, 0.045, 0.1...
+    interior: sigilParams.interior.id,
+    interiorProbability: sigilParams.interior.probability,
+    frame: sigilParams.frame.id,
+    frameProbability: sigilParams.frame.probability,
+  };
+
   // Flag so we can branch logic easily
-  const isEncrypted = !!encryptedPayload; // NEW
+  const isEncrypted = !!encryptedPayload;
 
   //--------------------------------------------------------------------
   // THREAD + ASSET NAME GENERATION
@@ -73,118 +84,105 @@ export async function buildMatotamMintData(params: {
   let seq = 1;
   if (mintedCountResp.ok) {
     const minted = await mintedCountResp.json();
-    if (Array.isArray(minted)) seq = minted.length + 1;
+    if (Array.isArray(minted)) {
+      seq = minted.length + 1;
+    }
   }
 
-  // Sequence number formatted with leading zeros (3-digit always)
-  const seqStr = seq.toString().padStart(3, "0");
+  // Sequence as 4-digit zero-padded number
+  const seqStr = seq.toString().padStart(4, "0");
 
-  // Small random suffix to guarantee uniqueness even if Blockfrost
-  // has not yet indexed the previous mint for this policy.
-  const randomSuffix = Math.floor(Math.random() * 36 ** 2)
-    .toString(36)
-    .padStart(2, "0"); // 2 base36 chars
+  // Base asset name (ASCII)
+  const assetNameBase = `Matotam-${seqStr}`;
 
-  // Final asset name for this NFT (still well under 32-byte limit)
-  const assetNameBase = `${threadId}-${seqStr}-${randomSuffix}`;
+  //--------------------------------------------------------------------
+  // MESSAGE WRAPPING + SVG RENDERING
+  //--------------------------------------------------------------------
 
+  // Wrap message for bubble (same logic as preview)
+  const lines = wrapMessageForBubble(message);
 
-  // Convert to HEX (Cardano requirement)
+  // Rarity code + ornament params from sender / recipient pair
+  const rarityInfo = getRarityInfo(senderAddr, recipientAddress);
+  const rarityCode = rarityInfo.code;
+  const ornamentParams = getOrnamentParamsForPair(senderAddr, recipientAddress);
+
+  // Sigil SVG derived deterministically from sender
+  const sigilSvg = getSigilSvgForAddress(senderAddr, 64);
+
+  // Build final bubble SVG (with sigil included)
+  const bubbleSvg = buildBubbleSvg(lines, rarityCode, ornamentParams, sigilSvg);
+
+  // Convert to data: URI
+  const dataUri = svgToDataUri(bubbleSvg);
+
+  //--------------------------------------------------------------------
+  // QUICK BURN ID + ASSET UNIT
+  //--------------------------------------------------------------------
+
+  // Asset name as bytes (ASCII) → hex
   const assetNameBytes = new TextEncoder().encode(assetNameBase);
   const assetNameHex = bytesToHex(assetNameBytes);
 
-  // Final unit
+  // Full unit (policyId + asset name)
   const unit = policyId + assetNameHex;
 
-  // Quick Burn ID (base64url)
+  // QuickBurn Id from unit (policy+asset)
   const quickBurnId = encodeUnitToQuickBurnId(unit);
 
-  // --- METADATA PROCESSING --------------------------------------------------
+  //--------------------------------------------------------------------
+  // MESSAGE PREVIEW + SAFE METADATA TEXT
+  //--------------------------------------------------------------------
 
-  // Original on-chain text candidate (limit 256 chars).
-  // IMPORTANT:
-  // - For encrypted messages we NEVER store this exact text on-chain.
-  // - It is only used for plaintext mode; encrypted mode uses a placeholder.
-  const safeMessageOriginal = message.trim().slice(0, 256); // CHANGED (renamed)
+  // ASCII preview for UI / metadata
+  const asciiPreviewSource = message.trim();
 
-  // Message that will actually be written into human-readable on-chain fields.
-  // - Plaintext mode: real message (as before)
-  // - Encrypted mode: a short placeholder to avoid leaking the real text
-  const safeMessageForOnchain = isEncrypted
-    ? "🔒 encrypted matotam"
-    : safeMessageOriginal; // NEW
+  // Safe version of message for on-chain storage (truncate to 256 chars)
+  const safeMessageForOnchain =
+    asciiPreviewSource.length > 256
+      ? asciiPreviewSource.slice(0, 253) + "..."
+      : asciiPreviewSource;
 
-  // Short ASCII-only preview (explorer-friendly)
-  const asciiPreviewSource = safeMessageForOnchain.replace(/[^\x20-\x7E]/g, "");
+  // Short preview for metadata / convenience
   const messagePreview =
     asciiPreviewSource.length > 61
-      ? asciiPreviewSource.slice(0, 61) + "..."
-      : asciiPreviewSource || "(message)";
+      ? asciiPreviewSource.slice(0, 58) + "..."
+      : asciiPreviewSource;
 
-  // Full ASCII-only version (safe) – based on the *on-chain* message
-  const messageSafeFull = makeSafeMetadataText(safeMessageForOnchain);
+  // Description field for 721
+  const description =
+    safeMessageForOnchain && safeMessageForOnchain.length > 0
+      ? makeSafeMetadataText(safeMessageForOnchain)
+      : "Matotam message";
 
-  // Short ASCII (<=64 chars)
-  const messageSafe =
-    messageSafeFull.length > 64
-      ? messageSafeFull.slice(0, 64)
-      : messageSafeFull;
-
-  // Segments of full ASCII text (used in "Message" metadata field)
-  const messageSafeSegments = splitAsciiIntoSegments(messageSafeFull, 64);
-
-  // NOTE:
-  // - We intentionally DO NOT store the UTF-8/base64 form of the original
-  //   message for encrypted mode, to avoid any accidental leakage.
-  // - If you ever need that in plaintext mode, you can re-introduce it
-  //   guarded by `!isEncrypted`.
-  //
-  // const encodedMessage = encodeMessageToBase64(safeMessageOriginal);
-  // const messageEncodedSegments = splitAsciiIntoSegments(encodedMessage, 64);
-
-  // Burn info
-  const burnInfoFull =
-    "To unlock the ADA in this message NFT, burn it on matotam.io. Burn can be done only by the sender, the receiver, or matotam.";
-
-  const burnInfoSegments = splitAsciiIntoSegments(burnInfoFull, 64);
-
-  const description = "On-chain message sent via matotam.io";
-
-  // Addresses
-  const fromAddressSegments = splitIntoSegments(senderAddr, 64);
-  const toAddressSegments = splitIntoSegments(recipientAddress, 64);
-
-  // -----------------------------------------------------------
-  // RARITY / TIME INFO (Y + D)
-  // -----------------------------------------------------------
-  const rarityInfo = getRarityInfo(new Date());
-  const rarityCode = rarityInfo.rarityCode;
-
-  // -----------------------------------------------------------
-  // SVG bubble lines
-  // -----------------------------------------------------------
-  // IMPORTANT:
-  // - For encrypted messages we again only render the placeholder text
-  //   in the bubble, never the real message.
-  const bubbleLines = wrapMessageForBubble(safeMessageForOnchain); // CHANGED
-
-  // -----------------------------------------------------------
-  // Ornament parameters (sender + receiver + Y + D)
-  // -----------------------------------------------------------
-  const ornamentParams = getOrnamentParamsForPair(
-    senderAddr,
-    recipientAddress,
-    rarityInfo.projectYear,
-    rarityInfo.dayInYear
+  // Burn info (DEV burn address + QuickBurn info)
+  const burnInfo = `Send 1 Lovelace to ${DEV_ADDRESS} with this NFT attached to permanently burn it.\nQuickBurn Id: ${quickBurnId}`;
+  const burnInfoSegments = splitAsciiIntoSegments(
+    makeSafeMetadataText(burnInfo),
+    64
   );
 
-  // -----------------------------------------------------------
-  // Final SVG build
-  // -----------------------------------------------------------
-  const svg = buildBubbleSvg(bubbleLines, rarityCode, ornamentParams);
-  const dataUri = svgToDataUri(svg);
+  // Human-readable addresses
+  const fromAddressSegments = splitAsciiIntoSegments(
+    makeSafeMetadataText(senderAddr),
+    64
+  );
+  const toAddressSegments = splitAsciiIntoSegments(
+    makeSafeMetadataText(recipientAddress),
+    64
+  );
 
-  // Safeguard logic for data URI size:
+  // Safe segments for the on-chain message field
+  const messageSafeSegments = splitAsciiIntoSegments(
+    makeSafeMetadataText(safeMessageForOnchain ?? ""),
+    64
+  );
+
+  //--------------------------------------------------------------------
+  // IMAGE SIZE GUARD (avoid oversized data URIs)
+  //--------------------------------------------------------------------
+
+  // Hard guard for data URI size:
   // - no truncation in the middle of SVG
   // - if URI is too long, we simply drop the image field completely
   const MAX_URI_LENGTH = 4096;
@@ -197,14 +195,16 @@ export async function buildMatotamMintData(params: {
     imageChunks = [];
   }
 
+  //--------------------------------------------------------------------
   // FINAL 721 METADATA
+  //--------------------------------------------------------------------
+
   const baseFields: any = {
     //
     // PRIORITY FIRST — EASY BURN
     //
-        // QuickBurn Id: stored as 64-char chunks to respect metadata limits
+    // QuickBurn Id: stored as 64-char chunks to respect metadata limits
     quickBurnId: splitAsciiIntoSegments(quickBurnId, 64),
-
 
     //
     // HUMAN FIELDS
@@ -216,12 +216,17 @@ export async function buildMatotamMintData(params: {
     // For encrypted messages, this is only a placeholder, not the real text.
     Message: messageSafeSegments,
 
+    // Minimal sigil info derived from sender address (for rarity/explorers)
+    sigil: sigilMeta,
+
     Thread: threadId,
     "Thread index": seqStr,
 
     createdAt: new Date().toISOString(),
 
+    //
     // RARITY
+    //
     rarity: rarityCode,
 
     //
@@ -243,24 +248,22 @@ export async function buildMatotamMintData(params: {
     version: "matotam-metadata-v1",
   };
 
-// NEW: attach encrypted payload when present
-if (isEncrypted && encryptedPayload) {
-  // Normalize cipherText to a single base64 string (in case someone ever
-  // passes an array here) and then split into 64-char chunks for metadata.
-  const cipherTextStr = Array.isArray(encryptedPayload.cipherText)
-    ? encryptedPayload.cipherText.join("")
-    : encryptedPayload.cipherText;
+  // NEW: attach encrypted payload when present
+  if (isEncrypted && encryptedPayload) {
+    // Normalize cipherText to a single base64 string (in case someone ever
+    // passes an array here) and then split into 64-char chunks for metadata.
+    const cipherTextStr = Array.isArray(encryptedPayload.cipherText)
+      ? encryptedPayload.cipherText.join("")
+      : encryptedPayload.cipherText;
 
-  baseFields.matotam_encrypted = {
-    ...encryptedPayload,
-    cipherText: splitAsciiIntoSegments(cipherTextStr, 64),
-  };
-  baseFields.messageMode = "encrypted";
-} else {
-  baseFields.messageMode = "plaintext";
-}
-
-
+    baseFields.matotam_encrypted = {
+      ...encryptedPayload,
+      cipherText: splitAsciiIntoSegments(cipherTextStr, 64),
+    };
+    baseFields.messageMode = "encrypted";
+  } else {
+    baseFields.messageMode = "plaintext";
+  }
 
   const rawMetadata721 = {
     [policyId]: {
