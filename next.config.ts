@@ -1,18 +1,26 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Pomáha Nextu spracovať ESM balík lucid-cardano korektne
   transpilePackages: ["lucid-cardano"],
 
   webpack: (config) => {
-    // Enable async WebAssembly (potrebné pre CML WASM v Lucid-e)
+    // WASM support
     config.experiments = {
       ...(config.experiments || {}),
       asyncWebAssembly: true,
       layers: true,
     };
 
-    // Ensure .wasm files are treated as async wasm modules
+    // FIX: wasm-bindgen placeholder used by lucid-cardano CML
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      "__wbindgen_placeholder__": require.resolve(
+        "lucid-cardano/esm/src/core/libs/cardano_multiplatform_lib/__wbindgen_placeholder__.js"
+      ),
+    };
+
+    // Make sure .wasm is handled as async wasm
     config.module.rules.push({
       test: /\.wasm$/,
       type: "webassembly/async",
