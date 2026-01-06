@@ -253,10 +253,13 @@ export async function buildMatotamMintData(params: {
   const safeMessageForOnchain =
     ascii.length > 256 ? ascii.slice(0, 253) + "..." : ascii;
 
-  const description =
-    safeMessageForOnchain.length > 0
-      ? makeSafeMetadataText(safeMessageForOnchain)
-      : "Matotam message";
+  const rawDesc =
+    safeMessageForOnchain.length > 0 ? safeMessageForOnchain : "Matotam message";
+
+  const description = makeSafeMetadataText(
+    rawDesc.length > 60 ? rawDesc.slice(0, 57) + "..." : rawDesc
+);
+
 
   const burnInfo = `Send 1 Lovelace to ${DEV_ADDRESS} with this NFT attached to permanently burn it.\nQuickBurn Id: ${quickBurnId}`;
 
