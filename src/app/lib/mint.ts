@@ -289,40 +289,38 @@ export async function buildMatotamMintData(params: {
   // Always chunk image data; never drop it based on length.
   const imageChunks = splitIntoSegments(dataUri, 64);
 
-  const messageMode = isEncrypted && encryptedPayload ? "encrypted" : "plaintext";
-
   const baseFields: any = {
-    // Human-readable fields are numbered so external metadata viewers
-    // keep the message first and burn instructions last.
-    "01 Message": messageSafeSegments,
+    // Identifiers
+    quickBurnId: splitAsciiIntoSegments(quickBurnId, 64),
+    rarity: rarityCode,
 
-    // Parties
-    "02 Receiver": toAddressSegments,
-    "03 Sender": fromAddressSegments,
-
-    // Threading
-    "04 Thread": threadId,
-    "05 Thread index": seqStr,
-    "06 Created at": new Date().toISOString(),
-
-    // Metadata
-    "07 Description": description,
-    "08 Message mode": messageMode,
-    "09 Quick burn id": splitAsciiIntoSegments(quickBurnId, 64),
-
-    // Visual / rarity traits
-    "10 Rarity": rarityCode,
-    "11 Sigil": sigilMeta,
-
-    // Burn instructions intentionally stay at the end for raw metadata viewers.
-    "99 Burn info": burnInfoSegments,
-
-    // Standard CIP-25 fields
+    // Human-readable
     name: assetNameBase,
-    image: imageChunks,
-    mediaType: "image/svg+xml",
+    description,
     source: "https://matotam.io",
     version: "matotam-metadata-v1",
+
+    // Threading
+    Thread: threadId,
+    "Thread index": seqStr,
+    createdAt: new Date().toISOString(),
+
+    // Parties
+    Sender: fromAddressSegments,
+    Receiver: toAddressSegments,
+
+    // Message (plaintext segments kept for your app)
+    Message: messageSafeSegments,
+
+    // Sigil traits
+    sigil: sigilMeta,
+
+    // Burn instructions
+    "Burn info": burnInfoSegments,
+
+    // CIP-25 image (chunked)
+    image: imageChunks,
+    mediaType: "image/svg+xml",
   };
 
   if (isEncrypted && encryptedPayload) {
@@ -334,6 +332,9 @@ export async function buildMatotamMintData(params: {
       ...encryptedPayload,
       cipherText: splitAsciiIntoSegments(cipherTextStr, 64),
     };
+    baseFields.messageMode = "encrypted";
+  } else {
+    baseFields.messageMode = "plaintext";
   }
 
   const rawMetadata721 = {
