@@ -130,6 +130,7 @@ function parseMatotamRowsFrom721(
       const senderAddress = joinSegments(baseFields.Sender);
       const receiverAddress = joinSegments(baseFields.Receiver);
       const messageText = joinSegments(baseFields.Message);
+      const burnInfo = joinSegments(baseFields["Burn info"] || baseFields.burnInfo);
 
       const quickBurnId = joinSegments(baseFields.quickBurnId);
       const rarityCode = baseFields.rarity ? String(baseFields.rarity) : null;
@@ -152,6 +153,7 @@ function parseMatotamRowsFrom721(
         receiverAddress,
         messageText,
         messageMode: messageMode === "encrypted" ? "encrypted" : "plaintext",
+        burnInfo: burnInfo || null,
         quickBurnId: quickBurnId || null,
         rarityCode,
         createdAt,

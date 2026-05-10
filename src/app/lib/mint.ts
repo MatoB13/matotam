@@ -261,7 +261,10 @@ export async function buildMatotamMintData(params: {
 );
 
 
-  const burnInfo = `Send 1 Lovelace to ${DEV_ADDRESS} with this NFT attached to permanently burn it.\nQuickBurn Id: ${quickBurnId}`;
+  const burnInfo =
+    `To permanently burn this message NFT, use Quick Burn on https://www.matotam.io.\n` +
+    `QuickBurn Id: ${quickBurnId}\n` +
+    `Burn authorization is limited to the original sender, recipient, or the matotam service address.`;
 
   const burnInfoSegments = splitAsciiIntoSegments(
     makeSafeMetadataText(burnInfo),

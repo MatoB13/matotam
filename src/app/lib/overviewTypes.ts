@@ -13,6 +13,7 @@ export interface MatotamOverviewRow {
 
   messageText: string;
   messageMode: "plaintext" | "encrypted";
+  burnInfo?: string | null;
   quickBurnId?: string | null;
   rarityCode?: string | null;
 

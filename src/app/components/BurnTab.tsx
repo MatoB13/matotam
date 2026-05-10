@@ -23,7 +23,7 @@ export default function BurnTab({
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-slate-200">Quick Burn</h2>
         <p className="text-xs text-slate-400">
-          Quickly burn any matotam message NFT and reclaim the ADA inside.
+          Quickly and permanently burn any matotam message NFT.
         </p>
       </div>
 
@@ -50,7 +50,7 @@ export default function BurnTab({
           disabled={quickBurnLoading || !walletConnected}
           className="w-full rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-sm font-semibold py-2 disabled:opacity-60 flex items-center justify-center gap-2"
         >
-          {quickBurnLoading ? "Burning…" : "🔥 Burn & reclaim ADA"}
+          {quickBurnLoading ? "Burning…" : "🔥 Burn message NFT"}
         </button>
         <p className="text-[11px] text-slate-500">
           Burning permanently destroys the NFT — this action cannot be undone.

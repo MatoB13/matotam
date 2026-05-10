@@ -14,6 +14,7 @@ interface MatotamOverviewRow {
   receiverAddress: string;
   messageText: string;
   messageMode: "plaintext" | "encrypted";
+  burnInfo?: string | null;
   quickBurnId?: string | null;
   rarityCode?: string | null;
   createdAt: string;
@@ -511,13 +512,21 @@ export default function OverviewPage() {
                       {receiverBadge && <AddressBadge kind={receiverBadge} />}
                     </td>
                     <td className="px-3 py-2 align-top">
-                      <div className="max-w-md text-xs whitespace-pre-wrap">
-                        {row.messageMode === "encrypted" && (
-                          <span className="inline-block mr-1 text-yellow-400">
-                            🔒
-                          </span>
+                      <div className="max-w-md">
+                        <div className="text-xs whitespace-pre-wrap text-slate-100">
+                          {row.messageMode === "encrypted" && (
+                            <span className="inline-block mr-1 text-yellow-400">
+                              🔒
+                            </span>
+                          )}
+                          {row.messageText || "(empty)"}
+                        </div>
+
+                        {row.burnInfo && (
+                          <div className="mt-3 border-t border-slate-800 pt-2 text-[10px] leading-relaxed whitespace-pre-wrap text-slate-500">
+                            {row.burnInfo}
+                          </div>
                         )}
-                        {row.messageText || "(empty)"}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top text-xs">
