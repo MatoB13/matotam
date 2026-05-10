@@ -27,10 +27,28 @@ function stringToHex(str: string): string {
  * Handles string[], string, and fallback to String(value).
  */
 function joinSegments(value: any): string {
-  if (!value) return "";
-  if (Array.isArray(value)) return value.join("");
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.map((part) => joinSegments(part)).join("");
   if (typeof value === "string") return value;
   return String(value);
+}
+
+/**
+ * Read a metadata field using all known schema variants.
+ *
+ * This keeps overview compatible with:
+ * - original metadata keys, e.g. Message / Sender / Receiver
+ * - temporary prefixed keys, e.g. 01 Message / 02 Receiver / 03 Sender
+ * - mixed case keys, e.g. messageMode / Message mode / quickBurnId / Quick burn id
+ */
+function readField(baseFields: any, keys: string[]): string {
+  for (const key of keys) {
+    const value = baseFields?.[key];
+    const text = joinSegments(value);
+    if (text) return text;
+  }
+
+  return "";
 }
 
 /**
@@ -113,32 +131,40 @@ function parseMatotamRowsFrom721(
     for (const assetNameBase of Object.keys(assetsObject)) {
       const baseFields = assetsObject[assetNameBase] || {};
 
-      const source = baseFields.source;
-      const version = baseFields.version;
-      const messageMode = baseFields.messageMode as
-        | "plaintext"
-        | "encrypted"
-        | undefined;
+      const source = readField(baseFields, ["source", "Source"]);
+      const version = readField(baseFields, ["version", "Version"]);
+      const messageModeRaw = readField(baseFields, [
+        "messageMode",
+        "Message mode",
+        "08 Message mode",
+      ]);
 
       const isMatotam =
         source === MATOTAM_SOURCE &&
-        typeof version === "string" &&
         version.startsWith(MATOTAM_VERSION_PREFIX);
 
       if (!isMatotam) continue;
 
-      const senderAddress = joinSegments(baseFields.Sender);
-      const receiverAddress = joinSegments(baseFields.Receiver);
-      const messageText = joinSegments(baseFields.Message);
-      const burnInfo = joinSegments(baseFields["Burn info"] || baseFields.burnInfo);
+      const senderAddress = readField(baseFields, ["Sender", "03 Sender"]);
+      const receiverAddress = readField(baseFields, ["Receiver", "02 Receiver"]);
+      const messageText = readField(baseFields, ["Message", "01 Message"]);
+      const burnInfo = readField(baseFields, [
+        "Burn info",
+        "99 Burn info",
+        "burnInfo",
+      ]);
 
-      const quickBurnId = joinSegments(baseFields.quickBurnId);
-      const rarityCode = baseFields.rarity ? String(baseFields.rarity) : null;
+      const quickBurnId = readField(baseFields, [
+        "quickBurnId",
+        "Quick burn id",
+        "09 Quick burn id",
+      ]);
+      const rarityRaw = readField(baseFields, ["rarity", "Rarity", "10 Rarity"]);
+      const rarityCode = rarityRaw || null;
 
       const createdAt =
-        typeof baseFields.createdAt === "string"
-          ? baseFields.createdAt
-          : new Date().toISOString();
+        readField(baseFields, ["createdAt", "Created at", "06 Created at"]) ||
+        new Date().toISOString();
 
       const assetNameHex = stringToHex(assetNameBase);
       const unit = `${policyId}${assetNameHex}`;
@@ -152,7 +178,8 @@ function parseMatotamRowsFrom721(
         senderAddress,
         receiverAddress,
         messageText,
-        messageMode: messageMode === "encrypted" ? "encrypted" : "plaintext",
+        messageMode:
+          messageModeRaw === "encrypted" ? "encrypted" : "plaintext",
         burnInfo: burnInfo || null,
         quickBurnId: quickBurnId || null,
         rarityCode,
@@ -196,10 +223,9 @@ export async function syncOverviewFromDevAddress(): Promise<void> {
   for (const txHash of newTxHashes) {
     const metadataArray = await fetchTxMetadata(txHash);
 
-const label721Entry = metadataArray.find(
-  (m) => String(m.label) === "721"
-);
-
+    const label721Entry = metadataArray.find(
+      (m) => String(m.label) === "721"
+    );
 
     if (!label721Entry || !label721Entry.json_metadata) continue;
 
