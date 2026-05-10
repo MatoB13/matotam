@@ -316,7 +316,7 @@ export async function buildMatotamMintData(params: {
     sigil: sigilMeta,
 
     // Burn instructions
-    "Burn info": burnInfoSegments,
+    //"Burn info": burnInfoSegments,
 
     // CIP-25 image (chunked)
     image: imageChunks,
