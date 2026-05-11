@@ -159,6 +159,44 @@ NEXT_PUBLIC_NETWORK=preprod
 
 ---
 
+## Agentic AI / Wallet-native Communication
+
+Matotam can also function as a wallet-native communication primitive for Cardano bots and AI agents.
+
+The protocol exposes:
+
+* Agent-readable NFT metadata
+* Thread-aware message structure
+* Optional encrypted payload delivery
+* Wallet-to-wallet NFT transport
+* Fully on-chain communication without a centralized relay
+
+Agent/discovery endpoints:
+
+* `/.well-known/agent.json`
+* `/agents`
+
+Lightweight helper utilities are available in:
+
+`src/app/lib/agentSdk.ts`
+
+Example:
+
+```ts
+import { sendMatotamMessage } from "@/app/lib/agentSdk";
+
+await sendMatotamMessage({
+  senderAddr,
+  recipientAddress,
+  message: "Liquidity detected",
+  policyId,
+});
+```
+
+This layer is intentionally additive:
+the main Matotam UX remains human-first, while also exposing machine-readable primitives for automation, bots, and autonomous agents.
+---
+
 ## Current Status
 
 * Fully functional on **Cardano test environment**
