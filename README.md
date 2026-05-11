@@ -161,6 +161,7 @@ NEXT_PUBLIC_NETWORK=preprod
 
 ## Agentic AI / Wallet-native Communication
 
+Matotam Protocol v1 treats Cardano wallets as communication endpoints.
 Matotam can also function as a wallet-native communication primitive for Cardano bots and AI agents.
 
 The protocol exposes:
@@ -175,6 +176,7 @@ Agent/discovery endpoints:
 
 * `/.well-known/agent.json`
 * `/agents`
+* `/api-spec`
 
 Lightweight helper utilities are available in:
 

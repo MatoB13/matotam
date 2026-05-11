@@ -3,6 +3,7 @@
   "name": "Matotam",
   "url": "https://matotam.io",
   "description": "Matotam is a fully on-chain, wallet-to-wallet messaging dApp on Cardano. It lets users and software agents send short messages directly to Cardano wallets as NFT-based on-chain messages, without a backend relay.",
+  "philosophy": "Matotam treats Cardano wallets as communication endpoints.",
   "network": {
     "blockchain": "Cardano",
     "supportedNetworks": ["mainnet", "preprod"],
@@ -15,7 +16,9 @@
     "ada-handle-resolution",
     "client-side-encrypted-messages",
     "wallet-inbox-reading",
-    "message-burning"
+    "message-burning",
+    "thread-aware-messaging",
+    "agent-readable-metadata"
   ],
   "agentUseCases": [
     "agent-to-agent coordination",
@@ -26,6 +29,7 @@
   ],
   "messageMetadata": {
     "protocol": "matotam",
+    "protocolVersion": "1",
     "messageType": "wallet-message",
     "agentReadable": true,
     "transport": "cardano-onchain-nft",
