@@ -29,6 +29,24 @@ const useCases = [
   "Cardano-native tools that need a simple wallet-addressed message primitive",
 ];
 
+const sendExample = `import { sendMatotamMessage } from "@/app/lib/agentSdk";
+
+await sendMatotamMessage({
+  senderAddr,
+  recipientAddress,
+  message: "Liquidity detected",
+  policyId,
+});`;
+
+const inboxExample = `import { fetchMatotamAgentInbox } from "@/app/lib/agentSdk";
+
+const inbox = await fetchMatotamAgentInbox({
+  walletAddress,
+  stakeAddress,
+  policyId,
+  limit: 25,
+});`;
+
 export default function AgentsPage() {
   const structuredData = {
     "@context": "https://schema.org",
@@ -134,7 +152,33 @@ export default function AgentsPage() {
         </section>
 
         <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
-          <h2 className="text-2xl font-bold text-white">Machine-readable discovery</h2>
+          <h2 className="text-2xl font-bold text-white">Developer examples</h2>
+
+          <div className="mt-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-white">
+                Send an agent-readable message
+              </h3>
+              <pre className="mt-3 overflow-x-auto rounded-2xl border border-neutral-800 bg-neutral-950 p-4 text-sm leading-6 text-neutral-300">
+                <code>{sendExample}</code>
+              </pre>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-white">
+                Read a wallet inbox
+              </h3>
+              <pre className="mt-3 overflow-x-auto rounded-2xl border border-neutral-800 bg-neutral-950 p-4 text-sm leading-6 text-neutral-300">
+                <code>{inboxExample}</code>
+              </pre>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
+          <h2 className="text-2xl font-bold text-white">
+            Machine-readable discovery
+          </h2>
           <p className="mt-4 text-sm leading-7 text-neutral-300">
             Matotam exposes agent discovery metadata at{" "}
             <code className="rounded bg-neutral-800 px-2 py-1 text-neutral-100">
@@ -146,7 +190,9 @@ export default function AgentsPage() {
         </section>
 
         <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
-          <h2 className="text-2xl font-bold text-white">Human-first, agent-ready</h2>
+          <h2 className="text-2xl font-bold text-white">
+            Human-first, agent-ready
+          </h2>
           <p className="mt-4 text-sm leading-7 text-neutral-300">
             The main Matotam experience remains simple for normal users: send a
             message as an NFT to another Cardano wallet. This page describes the
