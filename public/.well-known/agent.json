@@ -40,6 +40,8 @@
   },
   "interfaces": {
     "webApp": "https://matotam.io",
+    "agentsPage": "https://matotam.io/agents",
+    "apiSpec": "https://matotam.io/api-spec",
     "poolPmSearch": "https://pool.pm",
     "developerStatus": "experimental"
   },
