@@ -177,6 +177,40 @@ export default function AgentsPage() {
 
         <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
           <h2 className="text-2xl font-bold text-white">
+            Agent-readable NFT metadata
+          </h2>
+
+          <p className="mt-4 text-sm leading-7 text-neutral-300">
+            Matotam embeds machine-readable metadata directly into NFT
+            messages so that wallets, bots, and AI agents can interpret
+            messages without relying on a centralized backend.
+          </p>
+
+          <pre className="mt-6 overflow-x-auto rounded-2xl border border-neutral-800 bg-neutral-950 p-4 text-sm leading-6 text-neutral-300">
+            <code>{`{
+          "protocol": "matotam",
+          "messageType": "wallet-message",
+          "Thread": "matotam-abc-xyz",
+          "createdAt": "2026-05-11T12:00:00.000Z",
+          "agent": {
+            "readable": "true",
+            "protocol": "matotam",
+            "protocolVersion": "1",
+            "type": "agent-readable-message",
+            "intent": "wallet-message",
+            "transport": "cardano-onchain-nft",
+            "network": "cardano",
+            "delivery": "wallet-to-wallet",
+            "storage": "fully-onchain",
+            "encrypted": "false",
+            "requiresBackend": "false"
+          }
+        }`}</code>
+          </pre>
+        </section>
+
+        <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
+          <h2 className="text-2xl font-bold text-white">
             Machine-readable discovery
           </h2>
           <p className="mt-4 text-sm leading-7 text-neutral-300">
