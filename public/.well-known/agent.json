@@ -1,0 +1,60 @@
+{
+  "schema": "https://matotam.io/.well-known/agent.schema.json",
+  "name": "Matotam",
+  "url": "https://matotam.io",
+  "description": "Matotam is a fully on-chain, wallet-to-wallet messaging dApp on Cardano. It lets users and software agents send short messages directly to Cardano wallets as NFT-based on-chain messages, without a backend relay.",
+  "network": {
+    "blockchain": "Cardano",
+    "supportedNetworks": ["mainnet", "preprod"],
+    "walletStandard": "CIP-30"
+  },
+  "capabilities": [
+    "wallet-to-wallet-messaging",
+    "on-chain-message-delivery",
+    "nft-based-message-receipts",
+    "ada-handle-resolution",
+    "client-side-encrypted-messages",
+    "wallet-inbox-reading",
+    "message-burning"
+  ],
+  "agentUseCases": [
+    "agent-to-agent coordination",
+    "wallet-native notifications",
+    "on-chain status updates",
+    "transaction-related messages",
+    "human-to-agent and agent-to-human messages"
+  ],
+  "messageMetadata": {
+    "protocol": "matotam",
+    "messageType": "wallet-message",
+    "agentReadable": true,
+    "transport": "cardano-onchain-nft",
+    "supportsThreading": true,
+    "supportsEncryptedPayloads": true
+  },
+  "privacy": {
+    "backendRelay": false,
+    "centralizedInbox": false,
+    "privateKeysStored": false,
+    "encryption": "optional client-side AES-GCM passphrase encryption"
+  },
+  "interfaces": {
+    "webApp": "https://matotam.io",
+    "poolPmSearch": "https://pool.pm",
+    "developerStatus": "experimental"
+  },
+  "keywords": [
+    "Cardano",
+    "ADA",
+    "wallet messaging",
+    "on-chain messaging",
+    "agentic AI",
+    "AI agents",
+    "Cardano agents",
+    "CIP-30",
+    "NFT messages",
+    "decentralized communication",
+    "no backend",
+    "wallet-native communication"
+  ]
+}
