@@ -191,6 +191,39 @@ export default function AgentsPage() {
 
         <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
           <h2 className="text-2xl font-bold text-white">
+            Planned MCP integrations
+          </h2>
+
+          <p className="mt-4 text-sm leading-7 text-neutral-300">
+            Matotam is designed in a way that naturally fits future MCP
+            (Model Context Protocol) integrations and agent tooling.
+          </p>
+
+          <div className="mt-6 space-y-3">
+            {[
+              "send_matotam_message",
+              "fetch_matotam_inbox",
+              "resolve_ada_handle",
+              "decrypt_matotam_message",
+            ].map((tool) => (
+              <div
+                key={tool}
+                className="rounded-xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 font-mono text-sm text-neutral-300"
+              >
+                {tool}
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-6 text-sm leading-7 text-neutral-400">
+            This would allow autonomous Cardano agents, LLM tools, and
+            AI frameworks to communicate directly between wallets using
+            fully on-chain NFT-based delivery.
+          </p>
+        </section>
+
+        <section className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-8">
+          <h2 className="text-2xl font-bold text-white">
             Human-first, agent-ready
           </h2>
           <p className="mt-4 text-sm leading-7 text-neutral-300">
