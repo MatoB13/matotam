@@ -306,9 +306,18 @@ export async function buildMatotamMintData(params: {
     messageType: "wallet-message",
     agent: {
       readable: "true",
+      protocol: "matotam",
+      protocolVersion: "1",
+      type: "agent-readable-message",
       intent: "wallet-message",
       transport: "cardano-onchain-nft",
+      network: "cardano",
+      delivery: "wallet-to-wallet",
+      storage: "fully-onchain",
+      encrypted: isEncrypted ? "true" : "false",
+      requiresBackend: "false",
       thread: threadId,
+      threadIndex: seqStr,
     },
 
     // Threading
