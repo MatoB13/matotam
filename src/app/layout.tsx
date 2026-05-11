@@ -113,6 +113,7 @@ export const metadata: Metadata = {
       "agent-to-agent messaging, wallet notifications, trade coordination, DAO coordination, encrypted payload delivery, on-chain inbox",
     "cardano-capabilities":
       "CIP-30 wallet connection, ADA Handle resolution, NFT-based message delivery, fully on-chain metadata, no backend relay",
+    "agent-manifest": "/.well-known/agent.json",
   },
 };
 
