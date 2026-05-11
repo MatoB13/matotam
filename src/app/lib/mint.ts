@@ -300,6 +300,17 @@ export async function buildMatotamMintData(params: {
     source: "https://matotam.io",
     version: "matotam-metadata-v1",
 
+    // Machine-readable protocol hints for crawlers and AI agents.
+    // These do not change the visible NFT image or the user-facing app flow.
+    protocol: "matotam",
+    messageType: "wallet-message",
+    agent: {
+      readable: "true",
+      intent: "wallet-message",
+      transport: "cardano-onchain-nft",
+      thread: threadId,
+    },
+
     // Threading
     Thread: threadId,
     "Thread index": seqStr,
