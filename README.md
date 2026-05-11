@@ -195,6 +195,7 @@ await sendMatotamMessage({
 
 This layer is intentionally additive:
 the main Matotam UX remains human-first, while also exposing machine-readable primitives for automation, bots, and autonomous agents.
+
 ---
 
 ## Current Status
