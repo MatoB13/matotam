@@ -551,3 +551,121 @@
   font-size: 12px;
   font-weight: 700;
 }
+
+/* Mobile dashboard usability: keep desktop layout, make tables/charts usable on touch screens. */
+.panel,
+.panelWide,
+.panelFull,
+.chartPanel {
+  min-width: 0;
+}
+
+.tableWrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+}
+
+.tableWrap::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tableWrap::-webkit-scrollbar-thumb {
+  background: rgba(168, 181, 197, 0.35);
+  border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  .pageShell {
+    overflow-x: hidden;
+  }
+
+  .dashboardGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panelWide,
+  .panelFull,
+  .chartPanel {
+    grid-column: 1 / -1;
+  }
+
+  .chartBox {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+  }
+
+  .sparkline {
+    min-width: 720px;
+  }
+
+  .tableWrap table {
+    min-width: 920px;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageShell {
+    padding: 14px;
+  }
+
+  .header {
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .title {
+    font-size: 42px;
+    line-height: 0.94;
+  }
+
+  .subtitle {
+    font-size: 14px;
+  }
+
+  .headerActions {
+    min-width: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .refreshButton {
+    flex: 1 1 140px;
+    text-align: center;
+  }
+
+  .metricsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .metricCard {
+    min-height: 88px;
+    padding: 14px;
+  }
+
+  .metricCard strong {
+    font-size: 26px;
+  }
+
+  .panel,
+  .panelWide,
+  .panelFull {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .panelTitleRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .sparkline {
+    height: 260px;
+  }
+}

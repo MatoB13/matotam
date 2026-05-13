@@ -581,7 +581,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <div><span>Size</span><strong>11 USD · 2x</strong></div>
             <div><span>TP / SL</span><strong>0.30% / 0.45%</strong></div>
             <div><span>Hold / cooldown</span><strong>240m / 30m</strong></div>
-            <div><span>Limits</span><strong>3 open · 10/day · -8 USD/day</strong></div>
+            <div><span>Limits</span><strong>3 open · 50/day · -8 USD/day</strong></div>
             <div><span>Loss stop</span><strong>4 consecutive losses</strong></div>
           </div>
         </article>
