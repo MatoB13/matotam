@@ -36,6 +36,8 @@ type EventCount = {
 
 type Order = {
   id: number;
+  run_name?: string | null;
+  config_name?: string | null;
   created_at: string;
   status: string;
   side: string;
@@ -51,6 +53,8 @@ type Order = {
 
 type Position = {
   id: number;
+  run_name?: string | null;
+  config_name?: string | null;
   created_at: string;
   updated_at: string;
   status: string;
@@ -93,6 +97,17 @@ type ApiResponse = {
 };
 
 const REFRESH_SECONDS = 60;
+const CURRENT_RUN_NAME = "live_v1";
+
+function isCurrentRun(item: { run_name?: string | null }): boolean {
+  // Older API versions may not include run_name on every object. If it is missing, keep the row.
+  // If it is present, show only the current live run and hide old dry-run / ghost history.
+  return !item.run_name || item.run_name === CURRENT_RUN_NAME;
+}
+
+function isLiveRow(item: { run_name?: string | null; dry_run?: boolean | null; trading_enabled?: boolean | null }): boolean {
+  return isCurrentRun(item) && item.dry_run === false && item.trading_enabled === true;
+}
 
 function toNumber(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -219,19 +234,6 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
   );
 }
 
-const BOT_RULES = [
-  "Bot čaká na extrémny premium pohyb, nie na bežné malé výkyvy.",
-  "LONG otvorí pri premium <= -0.50 % a z-score <= -2.0.",
-  "SHORT otvorí pri premium >= +0.50 % a z-score >= +2.0.",
-  "Veľkosť pozície je 10 USD, leverage je 2x.",
-  "Naraz môže byť otvorená najviac 1 pozícia.",
-  "Take Profit je 0.30 % a Stop Loss je 0.30 % od vstupnej ceny.",
-  "Maximálne držanie pozície je 30 minút.",
-  "Po vstupe čaká cooldown 15 minút.",
-  "Maximálne 3 nové obchody denne a max denná strata 2 USD.",
-  "Live trading je zapnutý, dry-run je vypnutý.",
-];
-
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [data, setData] = useState<StrikebotData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,20 +291,54 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     return () => window.clearInterval(id);
   }, [autoRefresh]);
 
+  const currentEvents = useMemo(() => {
+    return (data?.recentEvents ?? []).filter((event) => isCurrentRun(event));
+  }, [data]);
+
+  const liveEvents = useMemo(() => {
+    return currentEvents.filter((event) => event.dry_run === false && event.trading_enabled === true);
+  }, [currentEvents]);
+
+  const visibleOrders = useMemo(() => {
+    return (data?.recentOrders ?? []).filter((order) => {
+      if (!isLiveRow(order)) return false;
+      const status = String(order.status ?? "").toUpperCase();
+      return !status.includes("DRY_RUN") && !status.includes("FAILED") && !status.includes("UNCONFIRMED");
+    });
+  }, [data]);
+
+  const visiblePositions = useMemo(() => {
+    return (data?.recentPositions ?? []).filter((position) => isLiveRow(position));
+  }, [data]);
+
+  const openPositions = useMemo(() => {
+    return visiblePositions.filter((position) => position.status === "OPEN");
+  }, [visiblePositions]);
+
   const stats = useMemo(() => {
-    const counts = data?.eventCounts ?? [];
-    const orderEvents =
-      getCount(counts, "DRY_RUN_ORDER_CREATED") +
-      getCount(counts, "LIVE_ORDER_SENT") +
-      getCount(counts, "LIVE_ORDER_PLACED") +
-      getCount(counts, "LIVE_POSITION_OPENED");
-    const noSignals = getCount(counts, "NO_SIGNAL");
-    const rejected = getCount(counts, "SIGNAL_REJECTED");
-    const totalEvents = counts.reduce((sum, item) => sum + Number(item.count ?? 0), 0);
-    const positionStats = data?.positionStats;
-    const winners = Number(positionStats?.winners ?? 0);
-    const losers = Number(positionStats?.losers ?? 0);
+    const orderEvents = liveEvents.filter((event) => {
+      const type = event.event_type;
+      return (
+        type === "LIVE_ORDER_ATTEMPTED" ||
+        type === "LIVE_ORDER_SENT" ||
+        type === "LIVE_ORDER_PLACED" ||
+        type === "LIVE_POSITION_OPENED" ||
+        type === "LIVE_POSITION_OPEN_CONFIRMED" ||
+        type === "LIVE_POSITION_CLOSE_ATTEMPTED" ||
+        type === "LIVE_POSITION_CLOSED"
+      );
+    }).length;
+
+    const noSignals = currentEvents.filter((event) => event.event_type === "NO_SIGNAL").length;
+    const rejected = currentEvents.filter((event) => event.event_type === "SIGNAL_REJECTED").length;
+    const totalEvents = currentEvents.length;
+
+    const closedPositions = visiblePositions.filter((position) => position.status === "CLOSED");
+    const winners = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) > 0).length;
+    const losers = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) < 0).length;
     const closed = winners + losers;
+    const totalPnl = closedPositions.reduce((sum, position) => sum + (toNumber(position.pnl_usd) ?? 0), 0);
+    const avgPnl = closedPositions.length > 0 ? totalPnl / closedPositions.length : 0;
     const winRate = closed > 0 ? (winners / closed) * 100 : 0;
 
     return {
@@ -310,16 +346,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       noSignals,
       rejected,
       orderEvents,
-      orderCount: data?.orderCount ?? 0,
-      openPositions: Number(positionStats?.open_positions ?? 0),
-      closedPositions: Number(positionStats?.closed_positions ?? 0),
-      totalPnl: Number(positionStats?.total_pnl_usd ?? 0),
-      avgPnl: Number(positionStats?.avg_pnl_usd ?? 0),
+      orderCount: visibleOrders.length,
+      openPositions: openPositions.length,
+      closedPositions: closedPositions.length,
+      totalPnl,
+      avgPnl,
       winRate,
     };
-  }, [data]);
+  }, [currentEvents, liveEvents, visibleOrders, visiblePositions, openPositions]);
 
-  const latestEvent = data?.recentEvents?.[0] ?? null;
+  const latestEvent = currentEvents[0] ?? null;
   const tradingEnabled = latestEvent?.trading_enabled ?? false;
   const dryRun = latestEvent?.dry_run ?? true;
   const latestEventAge = ageSeconds(latestEvent?.created_at);
@@ -426,26 +462,29 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Bot Rules</h2>
-          <ul className={styles.rulesList}>
-            {BOT_RULES.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
+          <div className={styles.rulesCompact}>
+            <div><span>LONG</span><strong>premium ≤ -0.50% · z ≤ -2.0</strong></div>
+            <div><span>SHORT</span><strong>premium ≥ +0.50% · z ≥ +2.0</strong></div>
+            <div><span>Size</span><strong>10 USD · 2x</strong></div>
+            <div><span>TP / SL</span><strong>0.30% / 0.60%</strong></div>
+            <div><span>Hold / cooldown</span><strong>45m / 15m</strong></div>
+            <div><span>Limits</span><strong>3 open · 10/day · -8 USD/day</strong></div>
+            <div><span>Loss stop</span><strong>4 consecutive losses</strong></div>
+          </div>
         </article>
 
-        <article className={`${styles.panelWide} ${styles.chartPanel}`}>
+        <article className={`${styles.panel} ${styles.chartPanel}`}>
           <h2>Premium Live Chart</h2>
-          <PremiumSparkline events={data?.recentEvents ?? []} />
+          <PremiumSparkline events={currentEvents} />
         </article>
 
         <article className={styles.panelWide}>
           <h2>Open Positions</h2>
           <div className={styles.positionCards}>
-            {(data?.recentPositions ?? []).filter((position) => position.status === "OPEN").length === 0 ? (
+            {openPositions.length === 0 ? (
               <div className={styles.emptyCard}>No open positions</div>
             ) : (
-              (data?.recentPositions ?? [])
-                .filter((position) => position.status === "OPEN")
+              openPositions
                 .slice(0, 4)
                 .map((position) => (
                   <div className={styles.positionCard} key={position.id}>
@@ -477,7 +516,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {(data?.recentEvents ?? []).slice(0, 12).map((event) => (
+                {currentEvents.slice(0, 12).map((event) => (
                   <tr key={event.id}>
                     <td>{formatTimeOnly(event.created_at)}</td>
                     <td><span className={`${styles.eventPill} ${styles[`event_${event.event_type}`] ?? ""}`}>{event.event_type}</span></td>
@@ -509,10 +548,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {(data?.recentPositions ?? []).length === 0 ? (
+                {visiblePositions.length === 0 ? (
                   <tr><td colSpan={8} className={styles.emptyCell}>No positions yet</td></tr>
                 ) : (
-                  (data?.recentPositions ?? []).slice(0, 10).map((position) => (
+                  visiblePositions.slice(0, 10).map((position) => (
                     <tr key={position.id}>
                       <td>{position.id}</td>
                       <td>{position.status}</td>
@@ -546,10 +585,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {(data?.recentOrders ?? []).length === 0 ? (
+                {visibleOrders.length === 0 ? (
                   <tr><td colSpan={7} className={styles.emptyCell}>No orders yet</td></tr>
                 ) : (
-                  (data?.recentOrders ?? []).slice(0, 10).map((order) => (
+                  visibleOrders.slice(0, 10).map((order) => (
                     <tr key={order.id}>
                       <td>{order.id}</td>
                       <td>{order.status}</td>
