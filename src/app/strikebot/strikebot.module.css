@@ -188,6 +188,7 @@
   display: grid;
   grid-template-columns: 280px 1fr 1fr;
   gap: 12px;
+  align-items: start;
 }
 
 .panel,
@@ -393,18 +394,9 @@
   .metricCard { min-height: 86px; }
 }
 
-.rulesBox {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(168, 181, 197, 0.14);
-}
-
-.rulesBox h3 {
-  margin: 0 0 12px;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #8fa0b3;
+/* Bot rules panel: separate card so it does not stretch or break the chart row. */
+.rulesPanel {
+  min-height: 220px;
 }
 
 .rulesList {
@@ -417,5 +409,9 @@
 .rulesList li {
   color: #dbe7f3;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.42;
+}
+
+.chartPanel {
+  grid-column: span 1;
 }

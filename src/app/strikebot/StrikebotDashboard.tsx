@@ -221,17 +221,14 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
 
 const BOT_RULES = [
   "Bot čaká na extrémny premium pohyb, nie na bežné malé výkyvy.",
-  "Otvorí LONG, keď premium <= -0.50 % a z-score <= -2.0.",
-  "Otvorí SHORT, keď premium >= +0.50 % a z-score >= +2.0.",
-  "Veľkosť pozície je 10 USD.",
-  "Leverage je 2x.",
+  "LONG otvorí pri premium <= -0.50 % a z-score <= -2.0.",
+  "SHORT otvorí pri premium >= +0.50 % a z-score >= +2.0.",
+  "Veľkosť pozície je 10 USD, leverage je 2x.",
   "Naraz môže byť otvorená najviac 1 pozícia.",
-  "Take Profit je 0.30 % od vstupnej ceny.",
-  "Stop Loss je 0.30 % od vstupnej ceny.",
+  "Take Profit je 0.30 % a Stop Loss je 0.30 % od vstupnej ceny.",
   "Maximálne držanie pozície je 30 minút.",
   "Po vstupe čaká cooldown 15 minút.",
-  "Maximálne 3 nové obchody denne.",
-  "Maximálna denná strata je 2 USD.",
+  "Maximálne 3 nové obchody denne a max denná strata 2 USD.",
   "Live trading je zapnutý, dry-run je vypnutý.",
 ];
 
@@ -425,18 +422,18 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <div><span>Win rate</span><strong>{stats.winRate.toFixed(1)}%</strong></div>
             <div><span>Avg PnL</span><strong className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}>{stats.avgPnl.toFixed(4)}</strong></div>
           </div>
-
-          <div className={styles.rulesBox}>
-            <h3>Aktuálne pravidlá bota</h3>
-            <ul className={styles.rulesList}>
-              {BOT_RULES.map((rule) => (
-                <li key={rule}>{rule}</li>
-              ))}
-            </ul>
-          </div>
         </article>
 
-        <article className={styles.panelWide}>
+        <article className={`${styles.panel} ${styles.rulesPanel}`}>
+          <h2>Bot Rules</h2>
+          <ul className={styles.rulesList}>
+            {BOT_RULES.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+        </article>
+
+        <article className={`${styles.panelWide} ${styles.chartPanel}`}>
           <h2>Premium Live Chart</h2>
           <PremiumSparkline events={data?.recentEvents ?? []} />
         </article>
