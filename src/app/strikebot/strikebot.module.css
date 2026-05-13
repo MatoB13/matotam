@@ -504,3 +504,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.limitLine {
+  stroke: rgba(255, 212, 91, 0.85);
+  stroke-width: 1.6;
+  stroke-dasharray: 8 8;
+}
+
+.limitLabel {
+  fill: #ffd45b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.hoverCapture {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.hoverLine {
+  stroke: rgba(232, 242, 255, 0.36);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 6;
+}
+
+.hoverDot {
+  fill: #e8f2ff;
+  stroke: #45ef6c;
+  stroke-width: 3;
+}
+
+.tooltipBox {
+  fill: rgba(2, 10, 17, 0.94);
+  stroke: rgba(69, 239, 108, 0.45);
+  stroke-width: 1;
+}
+
+.tooltipTextStrong {
+  fill: #45ef6c;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.tooltipText {
+  fill: #a8b5c5;
+  font-size: 12px;
+  font-weight: 700;
+}

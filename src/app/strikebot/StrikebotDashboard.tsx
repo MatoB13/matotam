@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { PointerEvent } from "react";
 import styles from "./strikebot.module.css";
 
 type RuntimeEvent = {
@@ -205,31 +206,54 @@ function Pager({ page, totalItems, onChange }: { page: number; totalItems: numbe
 }
 
 function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
+  const premiumLimit = 0.60;
+  const width = 900;
+  const height = 210;
+  const padding = 18;
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
   const points = events
     .slice(0, 288)
     .reverse()
-    .map((event) => toNumber(event.premium_pct))
-    .filter((value): value is number => value !== null);
+    .map((event) => ({
+      premium: toNumber(event.premium_pct),
+      time: event.created_at,
+      type: event.event_type,
+    }))
+    .filter((point): point is { premium: number; time: string; type: string } => point.premium !== null);
 
   if (points.length < 2) {
     return <div className={styles.emptyChart}>Not enough premium data yet</div>;
   }
 
-  const width = 900;
-  const height = 210;
-  const padding = 18;
-  const min = Math.min(...points, 0);
-  const max = Math.max(...points, 0);
+  const values = points.map((point) => point.premium);
+  const min = Math.min(...values, -premiumLimit, 0);
+  const max = Math.max(...values, premiumLimit, 0);
   const range = max - min || 1;
 
-  const coords = points.map((value, index) => {
-    const x = padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
-    const y = padding + ((max - value) / range) * (height - padding * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
+  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
 
-  const zeroY = padding + ((max - 0) / range) * (height - padding * 2);
-  const latest = points[points.length - 1];
+  const coords = points.map((point, index) => ({
+    x: toX(index),
+    y: toY(point.premium),
+    ...point,
+  }));
+
+  const zeroY = toY(0);
+  const upperLimitY = toY(premiumLimit);
+  const lowerLimitY = toY(-premiumLimit);
+  const latest = points[points.length - 1].premium;
+  const hoverPoint = hoverIndex === null ? null : coords[hoverIndex] || null;
+
+  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeX = ((event.clientX - rect.left) / rect.width) * width;
+    const chartWidth = width - padding * 2;
+    const ratio = Math.min(1, Math.max(0, (relativeX - padding) / chartWidth));
+    const nextIndex = Math.round(ratio * (coords.length - 1));
+    setHoverIndex(nextIndex);
+  }
 
   return (
     <div className={styles.chartBox}>
@@ -237,7 +261,14 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
         <span>Premium sparkline · running 24h</span>
         <strong className={latest >= 0 ? styles.goodText : styles.badText}>{latest.toFixed(4)}%</strong>
       </div>
-      <svg className={styles.sparkline} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="24 hour premium sparkline">
+      <svg
+        className={styles.sparkline}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="24 hour premium sparkline"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
         <defs>
           <linearGradient id="premiumLine" x1="0" x2="1" y1="0" y2="0">
             <stop offset="0%" stopColor="#5ba0ff" />
@@ -245,15 +276,44 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
           </linearGradient>
         </defs>
         <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
-        <polyline points={coords.join(" ")} fill="none" stroke="url(#premiumLine)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        {coords.map((coord, index) => {
-          const [x, y] = coord.split(",");
-          return <circle key={`${coord}-${index}`} cx={x} cy={y} r={index === coords.length - 1 ? 5 : 2.2} className={styles.sparkDot} />;
-        })}
+        <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.limitLine} />
+        <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.limitLine} />
+        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.limitLabel}>+0.60%</text>
+        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.limitLabel}>-0.60%</text>
+        <polyline
+          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#premiumLine)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {coords.map((coord, index) => (
+          <circle
+            key={`${coord.x}-${coord.y}-${index}`}
+            cx={coord.x}
+            cy={coord.y}
+            r={index === coords.length - 1 ? 5 : 2.2}
+            className={styles.sparkDot}
+          />
+        ))}
+        {hoverPoint ? (
+          <g className={styles.tooltipLayer}>
+            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
+            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="6" className={styles.hoverDot} />
+            <g transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}>
+              <rect width="170" height="54" rx="10" className={styles.tooltipBox} />
+              <text x="10" y="20" className={styles.tooltipTextStrong}>{hoverPoint.premium.toFixed(4)}%</text>
+              <text x="10" y="39" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
+            </g>
+          </g>
+        ) : null}
+        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
       </svg>
       <div className={styles.chartFooterRow}>
-        <span>min {min.toFixed(4)}%</span>
-        <span>max {max.toFixed(4)}%</span>
+        <span>min {Math.min(...values).toFixed(4)}%</span>
+        <span>limits ±{premiumLimit.toFixed(2)}%</span>
+        <span>max {Math.max(...values).toFixed(4)}%</span>
       </div>
     </div>
   );
