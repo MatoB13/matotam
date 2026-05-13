@@ -219,6 +219,22 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
   );
 }
 
+const BOT_RULES = [
+  "Bot čaká na extrémny premium pohyb, nie na bežné malé výkyvy.",
+  "Otvorí LONG, keď premium <= -0.50 % a z-score <= -2.0.",
+  "Otvorí SHORT, keď premium >= +0.50 % a z-score >= +2.0.",
+  "Veľkosť pozície je 10 USD.",
+  "Leverage je 2x.",
+  "Naraz môže byť otvorená najviac 1 pozícia.",
+  "Take Profit je 0.30 % od vstupnej ceny.",
+  "Stop Loss je 0.30 % od vstupnej ceny.",
+  "Maximálne držanie pozície je 30 minút.",
+  "Po vstupe čaká cooldown 15 minút.",
+  "Maximálne 3 nové obchody denne.",
+  "Maximálna denná strata je 2 USD.",
+  "Live trading je zapnutý, dry-run je vypnutý.",
+];
+
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [data, setData] = useState<StrikebotData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -408,6 +424,15 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <div><span>Total events</span><strong>{stats.totalEvents}</strong></div>
             <div><span>Win rate</span><strong>{stats.winRate.toFixed(1)}%</strong></div>
             <div><span>Avg PnL</span><strong className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}>{stats.avgPnl.toFixed(4)}</strong></div>
+          </div>
+
+          <div className={styles.rulesBox}>
+            <h3>Aktuálne pravidlá bota</h3>
+            <ul className={styles.rulesList}>
+              {BOT_RULES.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
           </div>
         </article>
 
