@@ -463,11 +463,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Bot Rules</h2>
           <div className={styles.rulesCompact}>
-            <div><span>LONG</span><strong>premium ≤ -0.50% · z ≤ -2.0</strong></div>
-            <div><span>SHORT</span><strong>premium ≥ +0.50% · z ≥ +2.0</strong></div>
+            <div><span>LONG</span><strong>premium ≤ -0.60% · z ≤ -2.5</strong></div>
+            <div><span>SHORT</span><strong>premium ≥ +0.60% · z ≥ +2.5</strong></div>
             <div><span>Size</span><strong>10 USD · 2x</strong></div>
-            <div><span>TP / SL</span><strong>0.30% / 0.60%</strong></div>
-            <div><span>Hold / cooldown</span><strong>45m / 15m</strong></div>
+            <div><span>TP / SL</span><strong>0.30% / 0.45%</strong></div>
+            <div><span>Hold / cooldown</span><strong>240m / 30m</strong></div>
             <div><span>Limits</span><strong>3 open · 10/day · -8 USD/day</strong></div>
             <div><span>Loss stop</span><strong>4 consecutive losses</strong></div>
           </div>
