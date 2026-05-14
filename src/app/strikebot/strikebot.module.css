@@ -5,14 +5,7 @@
   background: #071018;
   color: #e8f2ff;
   padding: 28px;
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .backgroundGlow {
@@ -21,21 +14,9 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(
-      circle at 15% 10%,
-      rgba(51, 255, 141, 0.16),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at 80% 0%,
-      rgba(91, 160, 255, 0.12),
-      transparent 28%
-    ),
-    radial-gradient(
-      circle at 50% 100%,
-      rgba(198, 91, 255, 0.1),
-      transparent 35%
-    );
+    radial-gradient(circle at 15% 10%, rgba(51, 255, 141, 0.16), transparent 30%),
+    radial-gradient(circle at 80% 0%, rgba(91, 160, 255, 0.12), transparent 28%),
+    radial-gradient(circle at 50% 100%, rgba(198, 91, 255, 0.1), transparent 35%);
 }
 
 .header,
@@ -79,35 +60,6 @@
 .subtitle {
   margin: 10px 0 0;
   color: #a8b5c5;
-}
-
-.burstBanner {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 12px;
-  border: 1px solid rgba(255, 212, 91, 0.65);
-  border-radius: 999px;
-  background: rgba(255, 212, 91, 0.14);
-  color: #ffd45b;
-  padding: 7px 13px;
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  box-shadow: 0 0 24px rgba(255, 212, 91, 0.16);
-  animation: burstBlink 0.9s infinite;
-}
-
-@keyframes burstBlink {
-  0%,
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 0.42;
-    transform: translateY(-1px);
-  }
 }
 
 .headerActions {
@@ -227,15 +179,9 @@
 }
 
 @keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(69, 239, 108, 0.65);
-  }
-  70% {
-    box-shadow: 0 0 0 12px rgba(69, 239, 108, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(69, 239, 108, 0);
-  }
+  0% { box-shadow: 0 0 0 0 rgba(69, 239, 108, 0.65); }
+  70% { box-shadow: 0 0 0 12px rgba(69, 239, 108, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(69, 239, 108, 0); }
 }
 
 .dashboardGrid {
@@ -391,23 +337,15 @@
   font-size: 11px;
 }
 
-.event_NO_SIGNAL {
-  color: #b8c6d6;
-}
-.event_SIGNAL_REJECTED {
-  color: #ffd45b;
-}
+.event_NO_SIGNAL { color: #b8c6d6; }
+.event_SIGNAL_REJECTED { color: #ffd45b; }
 .event_DRY_RUN_ORDER_CREATED,
 .event_LIVE_ORDER_ATTEMPTED,
 .event_LIVE_ORDER_SENT,
 .event_LIVE_ORDER_PLACED,
-.event_LIVE_POSITION_OPENED {
-  color: #45ef6c;
-}
+.event_LIVE_POSITION_OPENED { color: #45ef6c; }
 .event_ERROR,
-.event_LIVE_ORDER_FAILED {
-  color: #ff5b5b;
-}
+.event_LIVE_ORDER_FAILED { color: #ff5b5b; }
 
 .emptyCell {
   color: #8fa0b3;
@@ -415,18 +353,10 @@
   padding: 34px !important;
 }
 
-.goodText {
-  color: #45ef6c !important;
-}
-.badText {
-  color: #ff5b5b !important;
-}
-.warnText {
-  color: #ffd45b !important;
-}
-.mutedText {
-  color: #a8b5c5 !important;
-}
+.goodText { color: #45ef6c !important; }
+.badText { color: #ff5b5b !important; }
+.warnText { color: #ffd45b !important; }
+.mutedText { color: #a8b5c5 !important; }
 
 .footer {
   margin-top: 18px;
@@ -450,37 +380,18 @@
 }
 
 @media (max-width: 760px) {
-  .pageShell {
-    padding: 18px;
-  }
-  .header {
-    flex-direction: column;
-  }
-  .headerActions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .updatedText {
-    text-align: left;
-  }
-  .metricsGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .positionCards {
-    grid-template-columns: 1fr;
-  }
-  .title {
-    font-size: 34px;
-  }
+  .pageShell { padding: 18px; }
+  .header { flex-direction: column; }
+  .headerActions { width: 100%; justify-content: flex-start; }
+  .updatedText { text-align: left; }
+  .metricsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .positionCards { grid-template-columns: 1fr; }
+  .title { font-size: 34px; }
 }
 
 @media (max-width: 460px) {
-  .metricsGrid {
-    grid-template-columns: 1fr;
-  }
-  .metricCard {
-    min-height: 86px;
-  }
+  .metricsGrid { grid-template-columns: 1fr; }
+  .metricCard { min-height: 86px; }
 }
 
 /* Compact bot rules panel. Keep it narrow so the chart gets the main visual space. */
@@ -756,5 +667,32 @@
 
   .sparkline {
     height: 260px;
+  }
+}
+
+
+.burstBanner {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 8px 13px;
+  border: 1px solid rgba(255, 212, 91, 0.75);
+  border-radius: 999px;
+  color: #ffd45b;
+  background: rgba(255, 212, 91, 0.12);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 0 22px rgba(255, 212, 91, 0.22);
+  animation: burstBlink 0.9s infinite alternate;
+}
+
+@keyframes burstBlink {
+  from {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-1px);
   }
 }

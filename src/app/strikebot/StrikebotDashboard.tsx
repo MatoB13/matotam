@@ -71,12 +71,6 @@ type Position = {
   trading_enabled: boolean | null;
 };
 
-type CollectorState = {
-  mode: string | null;
-  premium_pct?: string | number | null;
-  updated_at?: string | null;
-};
-
 type PositionStats = {
   open_positions: string;
   closed_positions: string;
@@ -84,6 +78,18 @@ type PositionStats = {
   losers: string;
   total_pnl_usd: string | null;
   avg_pnl_usd: string | null;
+};
+
+type OrderSummary = {
+  config_name: string | null;
+  orders_total: string | number;
+  orders_24h: string | number;
+  closed_total: string | number;
+  closed_24h: string | number;
+  winners_total: string | number;
+  winners_24h: string | number;
+  pnl_total: string | number | null;
+  pnl_24h: string | number | null;
 };
 
 type StrikebotData = {
@@ -96,8 +102,6 @@ type StrikebotData = {
   recentPositions: Position[];
   orderCount: number;
   positionStats: PositionStats | null;
-  collectorState?: CollectorState | null;
-  currentConfigName?: string | null;
 };
 
 type ApiResponse = {
@@ -107,38 +111,16 @@ type ApiResponse = {
 };
 
 const REFRESH_SECONDS = 60;
-const CURRENT_RUN_NAME = "live_v1";
 const PAGE_SIZE = 20;
-const BURST_PREMIUM_FALLBACK_ABS = 0.45;
-
-function isCurrentRun(item: { run_name?: string | null }): boolean {
-  return !item.run_name || item.run_name === CURRENT_RUN_NAME;
-}
 
 function isLiveRow(item: {
-  run_name?: string | null;
   dry_run?: boolean | null;
   trading_enabled?: boolean | null;
 }): boolean {
-  return (
-    isCurrentRun(item) &&
-    item.dry_run === false &&
-    item.trading_enabled === true
-  );
+  return item.dry_run === false && item.trading_enabled === true;
 }
 
-function matchesConfig(
-  item: { config_name?: string | null },
-  configName: string | null,
-): boolean {
-  if (!configName) return true;
-  return item.config_name === configName;
-}
-
-function isWithinHours(
-  value: string | null | undefined,
-  hours: number,
-): boolean {
+function isWithinHours(value: string | null | undefined, hours: number): boolean {
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
@@ -151,19 +133,13 @@ function toNumber(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatNumber(
-  value: string | number | null | undefined,
-  digits = 4,
-): string {
+function formatNumber(value: string | number | null | undefined, digits = 4): string {
   const parsed = toNumber(value);
   if (parsed === null) return "—";
   return parsed.toFixed(digits);
 }
 
-function formatPct(
-  value: string | number | null | undefined,
-  digits = 4,
-): string {
+function formatPct(value: string | number | null | undefined, digits = 4): string {
   const parsed = toNumber(value);
   if (parsed === null) return "—";
   return `${parsed.toFixed(digits)}%`;
@@ -225,44 +201,22 @@ function pageItems<T>(items: T[], page: number): T[] {
   return items.slice(start, start + PAGE_SIZE);
 }
 
-function Pager({
-  page,
-  totalItems,
-  onChange,
-}: {
-  page: number;
-  totalItems: number;
-  onChange: (page: number) => void;
-}) {
+function Pager({ page, totalItems, onChange }: { page: number; totalItems: number; onChange: (page: number) => void }) {
   const pages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
 
   if (pages <= 1) return null;
 
   return (
     <div className={styles.pager}>
-      <button
-        type="button"
-        onClick={() => onChange(Math.max(0, page - 1))}
-        disabled={page === 0}
-      >
-        Prev
-      </button>
-      <span>
-        Page {page + 1} / {pages}
-      </span>
-      <button
-        type="button"
-        onClick={() => onChange(Math.min(pages - 1, page + 1))}
-        disabled={page >= pages - 1}
-      >
-        Next
-      </button>
+      <button type="button" onClick={() => onChange(Math.max(0, page - 1))} disabled={page === 0}>Prev</button>
+      <span>Page {page + 1} / {pages}</span>
+      <button type="button" onClick={() => onChange(Math.min(pages - 1, page + 1))} disabled={page >= pages - 1}>Next</button>
     </div>
   );
 }
 
 function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
-  const premiumLimit = 0.6;
+  const premiumLimit = 0.60;
   const width = 900;
   const height = 210;
   const padding = 18;
@@ -276,10 +230,7 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
       time: event.created_at,
       type: event.event_type,
     }))
-    .filter(
-      (point): point is { premium: number; time: string; type: string } =>
-        point.premium !== null,
-    );
+    .filter((point): point is { premium: number; time: string; type: string } => point.premium !== null);
 
   if (points.length < 2) {
     return <div className={styles.emptyChart}>Not enough premium data yet</div>;
@@ -290,10 +241,8 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
   const max = Math.max(...values, premiumLimit, 0);
   const range = max - min || 1;
 
-  const toX = (index: number) =>
-    padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
-  const toY = (value: number) =>
-    padding + ((max - value) / range) * (height - padding * 2);
+  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
 
   const coords = points.map((point, index) => ({
     x: toX(index),
@@ -320,9 +269,7 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
     <div className={styles.chartBox}>
       <div className={styles.chartHeaderRow}>
         <span>Premium sparkline · running 24h</span>
-        <strong className={latest >= 0 ? styles.goodText : styles.badText}>
-          {latest.toFixed(4)}%
-        </strong>
+        <strong className={latest >= 0 ? styles.goodText : styles.badText}>{latest.toFixed(4)}%</strong>
       </div>
       <svg
         className={styles.sparkline}
@@ -338,47 +285,13 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
             <stop offset="100%" stopColor="#45ef6c" />
           </linearGradient>
         </defs>
-        <line
-          x1={padding}
-          x2={width - padding}
-          y1={zeroY}
-          y2={zeroY}
-          className={styles.zeroLine}
-        />
-        <line
-          x1={padding}
-          x2={width - padding}
-          y1={upperLimitY}
-          y2={upperLimitY}
-          className={styles.limitLine}
-        />
-        <line
-          x1={padding}
-          x2={width - padding}
-          y1={lowerLimitY}
-          y2={lowerLimitY}
-          className={styles.limitLine}
-        />
-        <text
-          x={width - padding - 4}
-          y={upperLimitY - 6}
-          textAnchor="end"
-          className={styles.limitLabel}
-        >
-          +0.60%
-        </text>
-        <text
-          x={width - padding - 4}
-          y={lowerLimitY + 14}
-          textAnchor="end"
-          className={styles.limitLabel}
-        >
-          -0.60%
-        </text>
+        <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
+        <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.limitLine} />
+        <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.limitLine} />
+        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.limitLabel}>+0.60%</text>
+        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.limitLabel}>-0.60%</text>
         <polyline
-          points={coords
-            .map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`)
-            .join(" ")}
+          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
           fill="none"
           stroke="url(#premiumLine)"
           strokeWidth="4"
@@ -396,44 +309,16 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
         ))}
         {hoverPoint ? (
           <g className={styles.tooltipLayer}>
-            <line
-              x1={hoverPoint.x}
-              x2={hoverPoint.x}
-              y1={padding}
-              y2={height - padding}
-              className={styles.hoverLine}
-            />
-            <circle
-              cx={hoverPoint.x}
-              cy={hoverPoint.y}
-              r="6"
-              className={styles.hoverDot}
-            />
-            <g
-              transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}
-            >
-              <rect
-                width="170"
-                height="54"
-                rx="10"
-                className={styles.tooltipBox}
-              />
-              <text x="10" y="20" className={styles.tooltipTextStrong}>
-                {hoverPoint.premium.toFixed(4)}%
-              </text>
-              <text x="10" y="39" className={styles.tooltipText}>
-                {formatTimeOnly(hoverPoint.time)}
-              </text>
+            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
+            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="6" className={styles.hoverDot} />
+            <g transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}>
+              <rect width="170" height="54" rx="10" className={styles.tooltipBox} />
+              <text x="10" y="20" className={styles.tooltipTextStrong}>{hoverPoint.premium.toFixed(4)}%</text>
+              <text x="10" y="39" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
             </g>
           </g>
         ) : null}
-        <rect
-          x={padding}
-          y={padding}
-          width={width - padding * 2}
-          height={height - padding * 2}
-          className={styles.hoverCapture}
-        />
+        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
       </svg>
       <div className={styles.chartFooterRow}>
         <span>min {Math.min(...values).toFixed(4)}%</span>
@@ -463,12 +348,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
     try {
       setLoading(true);
-      const response = await fetch(
-        `/api/strikebot/status?token=${encodeURIComponent(token)}`,
-        {
-          cache: "no-store",
-        },
-      );
+      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}`, {
+        cache: "no-store",
+      });
       const payload = (await response.json()) as ApiResponse;
 
       if (!response.ok || !payload.ok || !payload.data) {
@@ -507,47 +389,45 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   }, [autoRefresh]);
 
   const currentEvents = useMemo(() => {
-    return (data?.recentEvents ?? []).filter((event) => isCurrentRun(event));
+    return data?.recentEvents ?? [];
   }, [data]);
 
   const liveEvents = useMemo(() => {
-    return currentEvents.filter(
-      (event) => event.dry_run === false && event.trading_enabled === true,
-    );
+    return currentEvents.filter((event) => event.dry_run === false && event.trading_enabled === true);
   }, [currentEvents]);
 
   const allEvents = useMemo(() => {
-    return (data?.allEvents ?? data?.recentEvents ?? []).filter((event) =>
-      isCurrentRun(event),
-    );
+    return data?.allEvents ?? data?.recentEvents ?? [];
   }, [data]);
 
   const signalHistory = useMemo(() => {
     return allEvents.filter((event) => event.event_type !== "NO_SIGNAL");
   }, [allEvents]);
 
-  const latestEvent = currentEvents[0] ?? allEvents[0] ?? null;
-  const activeConfigName =
-    data?.currentConfigName ?? latestEvent?.config_name ?? null;
-  const latestSignalEvent = signalHistory[0] ?? null;
-  const burstPremium =
-    toNumber(data?.collectorState?.premium_pct) ??
-    toNumber(data?.latestSnapshot?.premium_pct);
-  const burstActive =
-    String(data?.collectorState?.mode ?? "").toUpperCase() === "BURST" ||
-    (burstPremium !== null &&
-      Math.abs(burstPremium) >= BURST_PREMIUM_FALLBACK_ABS);
+  const activeConfigName = useMemo(() => {
+    if (data?.currentConfigName) return data.currentConfigName;
+
+    const candidates = [
+      ...(data?.recentEvents ?? []),
+      ...(data?.recentOrders ?? []),
+      ...(data?.recentPositions ?? []),
+    ]
+      .filter((item) => item.config_name)
+      .sort((a, b) => {
+        const aTime = new Date(a.created_at ?? "").getTime();
+        const bTime = new Date(b.created_at ?? "").getTime();
+        return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+      });
+
+    return candidates[0]?.config_name ?? null;
+  }, [data]);
 
   const visibleOrders = useMemo(() => {
     return (data?.recentOrders ?? []).filter((order) => {
-      if (!isLiveRow(order) || !matchesConfig(order, activeConfigName))
-        return false;
+      if (!isLiveRow(order)) return false;
+      if (!matchesConfig(order, activeConfigName)) return false;
       const status = String(order.status ?? "").toUpperCase();
-      return (
-        !status.includes("DRY_RUN") &&
-        !status.includes("FAILED") &&
-        !status.includes("UNCONFIRMED")
-      );
+      return !status.includes("DRY_RUN");
     });
   }, [data, activeConfigName]);
 
@@ -556,16 +436,13 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   }, [visibleOrders]);
 
   const visiblePositions = useMemo(() => {
-    return (data?.recentPositions ?? []).filter(
-      (position) =>
-        isLiveRow(position) && matchesConfig(position, activeConfigName),
-    );
+    return (data?.recentPositions ?? []).filter((position) => {
+      return isLiveRow(position) && matchesConfig(position, activeConfigName);
+    });
   }, [data, activeConfigName]);
 
   const positions24h = useMemo(() => {
-    return visiblePositions.filter((position) =>
-      isWithinHours(position.updated_at || position.created_at, 24),
-    );
+    return visiblePositions.filter((position) => isWithinHours(position.updated_at || position.created_at, 24));
   }, [visiblePositions]);
 
   const openPositions = useMemo(() => {
@@ -594,82 +471,74 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       );
     }).length;
 
-    const noSignals = currentEvents.filter(
-      (event) => event.event_type === "NO_SIGNAL",
-    ).length;
-    const rejected = currentEvents.filter(
-      (event) => event.event_type === "SIGNAL_REJECTED",
-    ).length;
+    const noSignals = currentEvents.filter((event) => event.event_type === "NO_SIGNAL").length;
+    const rejected = currentEvents.filter((event) => event.event_type === "SIGNAL_REJECTED").length;
     const totalEvents = currentEvents.length;
 
-    const closedPositions24h = positions24h.filter(
-      (position) => position.status === "CLOSED",
-    );
-    const closedPositionsAll = visiblePositions.filter(
-      (position) => position.status === "CLOSED",
-    );
+    const closedPositions = positions24h.filter((position) => position.status === "CLOSED");
+    const winners = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) > 0).length;
+    const losers = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) < 0).length;
+    const closed = winners + losers;
+    const totalPnl = closedPositions.reduce((sum, position) => sum + (toNumber(position.pnl_usd) ?? 0), 0);
+    const avgPnl = closedPositions.length > 0 ? totalPnl / closedPositions.length : 0;
+    const winRate = closed > 0 ? (winners / closed) * 100 : 0;
 
-    const winners24h = closedPositions24h.filter(
-      (position) => (toNumber(position.pnl_usd) ?? 0) > 0,
-    ).length;
-    const losers24h = closedPositions24h.filter(
-      (position) => (toNumber(position.pnl_usd) ?? 0) < 0,
-    ).length;
-    const closed24h = winners24h + losers24h;
-    const totalPnl24h = closedPositions24h.reduce(
+    const apiSummary = data?.orderSummary ?? null;
+    const allClosedPositions = visiblePositions.filter((position) => position.status === "CLOSED");
+    const allWinners = allClosedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) > 0).length;
+    const allClosedForRate = allClosedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) !== 0).length;
+    const totalPnlAllFromPositions = allClosedPositions.reduce(
       (sum, position) => sum + (toNumber(position.pnl_usd) ?? 0),
       0,
     );
-    const avgPnl24h =
-      closedPositions24h.length > 0
-        ? totalPnl24h / closedPositions24h.length
-        : 0;
-    const winRate24h = closed24h > 0 ? (winners24h / closed24h) * 100 : 0;
 
-    const winnersAll = closedPositionsAll.filter(
-      (position) => (toNumber(position.pnl_usd) ?? 0) > 0,
-    ).length;
-    const losersAll = closedPositionsAll.filter(
-      (position) => (toNumber(position.pnl_usd) ?? 0) < 0,
-    ).length;
-    const closedAll = winnersAll + losersAll;
-    const totalPnlAll = closedPositionsAll.reduce(
-      (sum, position) => sum + (toNumber(position.pnl_usd) ?? 0),
-      0,
-    );
-    const winRateAll = closedAll > 0 ? (winnersAll / closedAll) * 100 : 0;
+    const orderCountAll = toNumber(apiSummary?.orders_total) ?? visibleOrders.length;
+    const orderCount24h = toNumber(apiSummary?.orders_24h) ?? visibleOrders24h.length;
+    const closedPositionsAll = toNumber(apiSummary?.closed_total) ?? allClosedPositions.length;
+    const winnersAll = toNumber(apiSummary?.winners_total) ?? allWinners;
+    const winRateAll = closedPositionsAll > 0 ? (winnersAll / closedPositionsAll) * 100 : 0;
+    const totalPnlAll = toNumber(apiSummary?.pnl_total) ?? totalPnlAllFromPositions;
+    const totalPnl24h = toNumber(apiSummary?.pnl_24h) ?? totalPnl;
 
     return {
       totalEvents,
       noSignals,
       rejected,
       orderEvents,
-      orderCount: visibleOrders24h.length,
-      orderCountAll: visibleOrders.length,
+      orderCount: orderCount24h,
+      orderCountAll,
       openPositions: openPositions.length,
-      closedPositions: closedPositions24h.length,
-      closedPositionsAll: closedPositionsAll.length,
+      closedPositions: closedPositions.length,
+      closedPositionsAll,
       totalPnl: totalPnl24h,
       totalPnlAll,
-      avgPnl: avgPnl24h,
-      winRate: winRate24h,
+      avgPnl,
+      winRate,
       winRateAll,
     };
   }, [
+    data,
     currentEvents,
     liveEvents,
     visibleOrders,
     visibleOrders24h,
-    visiblePositions,
     positions24h,
+    visiblePositions,
     openPositions,
   ]);
 
+  const latestEvent = currentEvents[0] ?? allEvents[0] ?? null;
+  const lastSignalEvent = signalHistory[0] ?? null;
   const tradingEnabled = latestEvent?.trading_enabled ?? false;
   const dryRun = latestEvent?.dry_run ?? true;
   const latestEventAge = ageSeconds(latestEvent?.created_at);
   const heartbeatOk = latestEventAge !== null && latestEventAge < 180;
   const latestZ = toNumber(latestEvent?.premium_z);
+  const collectorMode = String(data?.collectorState?.mode ?? "").toUpperCase();
+  const latestPremiumAbs = Math.abs(toNumber(data?.latestSnapshot?.premium_pct) ?? 0);
+  const burstModeActive =
+    collectorMode === "BURST" ||
+    (!collectorMode && latestPremiumAbs >= BURST_PREMIUM_FALLBACK_ABS);
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
 
@@ -680,23 +549,15 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
-          <h1 className={styles.title}>
-            STRIKE BOT <span>LIVE DASHBOARD</span>
-          </h1>
-          {burstActive ? (
+          <h1 className={styles.title}>STRIKE BOT <span>LIVE DASHBOARD</span></h1>
+          {burstModeActive ? (
             <div className={styles.burstBanner}>Burst mode activated!</div>
           ) : null}
-          <p className={styles.subtitle}>
-            Read-only status dashboard. No order controls.
-          </p>
+          <p className={styles.subtitle}>Read-only status dashboard. No order controls.</p>
         </div>
 
         <div className={styles.headerActions}>
-          <button
-            className={styles.refreshButton}
-            onClick={() => void loadData()}
-            disabled={loading}
-          >
+          <button className={styles.refreshButton} onClick={() => void loadData()} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
           </button>
           <label className={styles.toggleLabel}>
@@ -708,8 +569,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             Auto {autoRefresh ? `${countdown}s` : "off"}
           </label>
           <p className={styles.updatedText}>
-            Updated CET:{" "}
-            {lastRefresh ? formatDateTime(lastRefresh.toISOString()) : "—"}
+            Updated CET: {lastRefresh ? formatDateTime(lastRefresh.toISOString()) : "—"}
           </p>
         </div>
       </header>
@@ -719,9 +579,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <section className={styles.metricsGrid}>
         <article className={`${styles.metricCard} ${styles.statusCard}`}>
           <span>Status</span>
-          <strong
-            className={tradingEnabled ? styles.goodText : styles.warnText}
-          >
+          <strong className={tradingEnabled ? styles.goodText : styles.warnText}>
             <span className={heartbeatOk ? styles.liveDot : styles.staleDot} />
             {tradingEnabled ? "LIVE" : "SAFE"}
           </strong>
@@ -736,36 +594,21 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
         <article className={styles.metricCard}>
           <span>Premium</span>
-          <strong
-            className={
-              toNumber(data?.latestSnapshot?.premium_pct) !== null &&
-              Number(data?.latestSnapshot?.premium_pct) >= 0
-                ? styles.goodText
-                : styles.badText
-            }
-          >
+          <strong className={toNumber(data?.latestSnapshot?.premium_pct) !== null && Number(data?.latestSnapshot?.premium_pct) >= 0 ? styles.goodText : styles.badText}>
             {formatPct(data?.latestSnapshot?.premium_pct)}
           </strong>
           <small>snapshot #{data?.latestSnapshot?.id ?? "—"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Z-score</span>
-          <strong
-            className={
-              latestZ !== null && Math.abs(latestZ) >= 2
-                ? styles.warnText
-                : undefined
-            }
-          >
+          <strong className={latestZ !== null && Math.abs(latestZ) >= 2 ? styles.warnText : undefined}>
             {formatNumber(latestEvent?.premium_z, 3)}
           </strong>
           <small>latest event</small>
         </article>
         <article className={styles.metricCard}>
           <span>Current Price</span>
-          <strong>
-            {formatNumber(data?.latestSnapshot?.binance_adausdt, 6)}
-          </strong>
+          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, 6)}</strong>
           <small>ADA/USD</small>
         </article>
         <article className={styles.metricCard}>
@@ -780,9 +623,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
         <article className={styles.metricCard}>
           <span>PnL 24h</span>
-          <strong
-            className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}
-          >
+          <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
             {stats.totalPnl.toFixed(4)}
           </strong>
           <small>USD</small>
@@ -793,81 +634,33 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={styles.panel}>
           <h2>Signals Summary · Running 24h</h2>
           <div className={styles.statRows}>
-            <div>
-              <span>Last signal</span>
-              <strong>{formatDateTime(latestSignalEvent?.created_at)}</strong>
-            </div>
-            <div>
-              <span>Order events</span>
-              <strong className={styles.goodText}>{stats.orderEvents}</strong>
-            </div>
-            <div>
-              <span>Rejected signals</span>
-              <strong className={styles.warnText}>{stats.rejected}</strong>
-            </div>
-            <div>
-              <span>No signal</span>
-              <strong>{stats.noSignals}</strong>
-            </div>
-            <div>
-              <span>Total events</span>
-              <strong>{stats.totalEvents}</strong>
-            </div>
-            <div>
-              <span>Win rate</span>
-              <strong>{stats.winRate.toFixed(1)}%</strong>
-            </div>
-            <div>
-              <span>Avg PnL</span>
-              <strong
-                className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}
-              >
-                {stats.avgPnl.toFixed(4)}
-              </strong>
-            </div>
+            <div><span>Order events</span><strong className={styles.goodText}>{stats.orderEvents}</strong></div>
+            <div><span>Rejected signals</span><strong className={styles.warnText}>{stats.rejected}</strong></div>
+            <div><span>No signal</span><strong>{stats.noSignals}</strong></div>
+            <div><span>Total events</span><strong>{stats.totalEvents}</strong></div>
+            <div><span>Last signal</span><strong>{formatDateTime(lastSignalEvent?.created_at)}</strong></div>
+            <div><span>Win rate</span><strong>{stats.winRate.toFixed(1)}%</strong></div>
+            <div><span>Avg PnL</span><strong className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}>{stats.avgPnl.toFixed(4)}</strong></div>
           </div>
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Orders Summary</h2>
           <div className={styles.rulesCompact}>
-            <div>
-              <span>Config</span>
-              <strong>{activeConfigName ?? "—"}</strong>
-            </div>
-            <div>
-              <span>Orders total</span>
-              <strong>{stats.orderCountAll}</strong>
-            </div>
-            <div>
-              <span>Orders 24h</span>
-              <strong>{stats.orderCount}</strong>
-            </div>
-            <div>
-              <span>Closed total</span>
-              <strong>{stats.closedPositionsAll}</strong>
-            </div>
-            <div>
-              <span>Win rate total</span>
-              <strong>{stats.winRateAll.toFixed(1)}%</strong>
-            </div>
+            <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
+            <div><span>Orders total</span><strong>{stats.orderCountAll}</strong></div>
+            <div><span>Orders 24h</span><strong>{stats.orderCount}</strong></div>
+            <div><span>Closed total</span><strong>{stats.closedPositionsAll}</strong></div>
+            <div><span>Win rate total</span><strong>{stats.winRateAll.toFixed(1)}%</strong></div>
             <div>
               <span>P&L total</span>
-              <strong
-                className={
-                  stats.totalPnlAll >= 0 ? styles.goodText : styles.badText
-                }
-              >
+              <strong className={stats.totalPnlAll >= 0 ? styles.goodText : styles.badText}>
                 {stats.totalPnlAll.toFixed(4)}
               </strong>
             </div>
             <div>
               <span>P&L 24h</span>
-              <strong
-                className={
-                  stats.totalPnl >= 0 ? styles.goodText : styles.badText
-                }
-              >
+              <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
                 {stats.totalPnl.toFixed(4)}
               </strong>
             </div>
@@ -899,18 +692,12 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {visibleOpenPositionsPage.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className={styles.emptyCell}>
-                      No open positions
-                    </td>
-                  </tr>
+                  <tr><td colSpan={7} className={styles.emptyCell}>No open positions</td></tr>
                 ) : (
                   visibleOpenPositionsPage.map((position) => (
                     <tr key={position.id}>
                       <td>{position.id}</td>
-                      <td className={classForSide(position.side)}>
-                        {position.side}
-                      </td>
+                      <td className={classForSide(position.side)}>{position.side}</td>
                       <td>{formatNumber(position.entry_price, 6)}</td>
                       <td>{formatNumber(position.size_usd, 2)} USD</td>
                       <td>{formatNumber(position.leverage, 1)}x</td>
@@ -922,11 +709,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </tbody>
             </table>
           </div>
-          <Pager
-            page={openPositionPage}
-            totalItems={openPositions.length}
-            onChange={setOpenPositionPage}
-          />
+          <Pager page={openPositionPage} totalItems={openPositions.length} onChange={setOpenPositionPage} />
         </article>
 
         <article className={styles.panelWide}>
@@ -947,27 +730,17 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {positions24h.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className={styles.emptyCell}>
-                      No 24h positions yet
-                    </td>
-                  </tr>
+                  <tr><td colSpan={8} className={styles.emptyCell}>No 24h positions yet</td></tr>
                 ) : (
                   positions24h.slice(0, 20).map((position) => (
                     <tr key={position.id}>
                       <td>{position.id}</td>
                       <td>{position.status}</td>
-                      <td className={classForSide(position.side)}>
-                        {position.side}
-                      </td>
+                      <td className={classForSide(position.side)}>{position.side}</td>
                       <td>{formatNumber(position.entry_price, 6)}</td>
                       <td>{formatNumber(position.exit_price, 6)}</td>
-                      <td className={classForPnl(position.pnl_usd)}>
-                        {formatNumber(position.pnl_usd, 4)}
-                      </td>
-                      <td className={classForPnl(position.pnl_pct)}>
-                        {formatPct(position.pnl_pct)}
-                      </td>
+                      <td className={classForPnl(position.pnl_usd)}>{formatNumber(position.pnl_usd, 4)}</td>
+                      <td className={classForPnl(position.pnl_pct)}>{formatPct(position.pnl_pct)}</td>
                       <td>{position.exit_reason ?? "—"}</td>
                     </tr>
                   ))
@@ -994,11 +767,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {visibleOrders24h.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className={styles.emptyCell}>
-                      No 24h orders yet
-                    </td>
-                  </tr>
+                  <tr><td colSpan={7} className={styles.emptyCell}>No 24h orders yet</td></tr>
                 ) : (
                   visibleOrders24h.slice(0, 20).map((order) => (
                     <tr key={order.id}>
@@ -1039,54 +808,31 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {visibleSignalsPage.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className={styles.emptyCell}>
-                      No captured signals yet
-                    </td>
-                  </tr>
+                  <tr><td colSpan={9} className={styles.emptyCell}>No captured signals yet</td></tr>
                 ) : (
                   visibleSignalsPage.map((event) => (
                     <tr key={event.id}>
                       <td>{event.id}</td>
                       <td>{formatDateTime(event.created_at)}</td>
-                      <td>
-                        <span
-                          className={`${styles.eventPill} ${styles[`event_${event.event_type}`] ?? ""}`}
-                        >
-                          {event.event_type}
-                        </span>
-                      </td>
+                      <td><span className={`${styles.eventPill} ${styles[`event_${event.event_type}`] ?? ""}`}>{event.event_type}</span></td>
                       <td>{event.signal ?? "—"}</td>
-                      <td className={styles.messageCell}>
-                        {event.message ?? "—"}
-                      </td>
+                      <td className={styles.messageCell}>{event.message ?? "—"}</td>
                       <td>{formatPct(event.premium_pct)}</td>
                       <td>{formatNumber(event.premium_z, 3)}</td>
                       <td>{formatNumber(event.price, 6)}</td>
-                      <td>
-                        {event.dry_run
-                          ? "DRY"
-                          : event.trading_enabled
-                            ? "LIVE"
-                            : "SAFE"}
-                      </td>
+                      <td>{event.dry_run ? "DRY" : event.trading_enabled ? "LIVE" : "SAFE"}</td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
-          <Pager
-            page={signalPage}
-            totalItems={signalHistory.length}
-            onChange={setSignalPage}
-          />
+          <Pager page={signalPage} totalItems={signalHistory.length} onChange={setSignalPage} />
         </article>
       </section>
 
       <footer className={styles.footer}>
-        Read-only dashboard. Live trading is controlled only by the Railway
-        executor and Strike API settings.
+        Read-only dashboard. Live trading is controlled only by the Railway executor and Strike API settings.
       </footer>
     </main>
   );
