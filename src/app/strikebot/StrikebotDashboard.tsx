@@ -102,6 +102,10 @@ type StrikebotData = {
   recentPositions: Position[];
   orderCount: number;
   positionStats: PositionStats | null;
+  collectorState?: CollectorState | null;
+  currentConfigName?: string | null;
+  orderSummary?: OrderSummary | null;
+  availableConfigNames?: string[];
 };
 
 type ApiResponse = {
