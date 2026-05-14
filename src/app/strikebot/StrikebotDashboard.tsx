@@ -71,6 +71,12 @@ type Position = {
   trading_enabled: boolean | null;
 };
 
+type CollectorState = {
+  mode: string | null;
+  premium_pct?: string | number | null;
+  updated_at?: string | null;
+};
+
 type PositionStats = {
   open_positions: string;
   closed_positions: string;
