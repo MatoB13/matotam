@@ -29,6 +29,8 @@ export type StrikebotRuntimeEvent = {
 
 export type StrikebotOrder = {
   id: number;
+  run_name: string | null;
+  config_name: string | null;
   created_at: string;
   status: string;
   side: string;
@@ -44,6 +46,8 @@ export type StrikebotOrder = {
 
 export type StrikebotPosition = {
   id: number;
+  run_name: string | null;
+  config_name: string | null;
   created_at: string;
   updated_at: string;
   status: string;
