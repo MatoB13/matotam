@@ -122,12 +122,21 @@ type ApiResponse = {
 
 const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
+const BURST_PREMIUM_FALLBACK_ABS = 0.45;
 
 function isLiveRow(item: {
   dry_run?: boolean | null;
   trading_enabled?: boolean | null;
 }): boolean {
   return item.dry_run === false && item.trading_enabled === true;
+}
+
+function matchesConfig(
+  item: { config_name?: string | null },
+  configName: string | null,
+): boolean {
+  if (!configName) return true;
+  return item.config_name === configName;
 }
 
 function isWithinHours(value: string | null | undefined, hours: number): boolean {
