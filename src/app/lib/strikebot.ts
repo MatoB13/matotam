@@ -74,6 +74,28 @@ type PgPositionStatsRow = {
   avg_pnl_usd: string | null;
 };
 
+type PgConfigNameRow = {
+  config_name: string | null;
+};
+
+export type StrikebotOrderSummary = {
+  config_name: string | null;
+  orders_total: string;
+  orders_24h: string;
+  closed_total: string;
+  closed_24h: string;
+  winners_total: string;
+  winners_24h: string;
+  pnl_total: string | null;
+  pnl_24h: string | null;
+};
+
+export type StrikebotCollectorState = {
+  mode: string | null;
+  premium_pct: string | number | null;
+  updated_at: string | null;
+};
+
 const globalForPg = globalThis as unknown as {
   strikebotPool?: Pool;
 };
@@ -100,6 +122,21 @@ function getPool() {
 export async function getStrikebotStatus() {
   const pool = getPool();
 
+  const currentConfigResult = await pool.query<PgConfigNameRow>(`
+    SELECT config_name
+    FROM (
+      SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL
+      UNION ALL
+      SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL
+      UNION ALL
+      SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL
+    ) configs
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+
+  const currentConfigName = currentConfigResult.rows[0]?.config_name ?? null;
+
   const [
     latestSnapshot,
     recentEvents,
@@ -109,6 +146,7 @@ export async function getStrikebotStatus() {
     recentPositions,
     orderCount,
     positionStats,
+    orderSummary,
   ] = await Promise.all([
     pool.query<StrikebotSnapshot>(`
       SELECT id, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
@@ -137,14 +175,15 @@ export async function getStrikebotStatus() {
       ORDER BY count DESC
     `),
     pool.query<StrikebotOrder>(`
-      SELECT id, created_at, status, side, order_type, price, premium_pct, premium_z,
-             size_usd, leverage, dry_run, trading_enabled
+      SELECT id, created_at, run_name, config_name, status, side, order_type,
+             price, premium_pct, premium_z, size_usd, leverage, dry_run, trading_enabled
       FROM live_orders
       ORDER BY id DESC
     `),
     pool.query<StrikebotPosition>(`
-      SELECT id, created_at, updated_at, status, side, entry_price, exit_price,
-             pnl_pct, pnl_usd, exit_reason, size_usd, leverage, dry_run, trading_enabled
+      SELECT id, created_at, updated_at, run_name, config_name, status, side,
+             entry_price, exit_price, pnl_pct, pnl_usd, exit_reason, size_usd,
+             leverage, dry_run, trading_enabled
       FROM live_positions
       ORDER BY id DESC
     `),
@@ -163,7 +202,44 @@ export async function getStrikebotStatus() {
         COALESCE(AVG(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS avg_pnl_usd
       FROM live_positions
     `),
+    pool.query<StrikebotOrderSummary>(
+      `
+      SELECT
+        $1::text AS config_name,
+        COUNT(o.*)::text AS orders_total,
+        COUNT(o.*) FILTER (WHERE o.created_at >= NOW() - INTERVAL '24 hours')::text AS orders_24h,
+        COUNT(p.*) FILTER (WHERE p.status = 'CLOSED')::text AS closed_total,
+        COUNT(p.*) FILTER (WHERE p.status = 'CLOSED' AND p.updated_at >= NOW() - INTERVAL '24 hours')::text AS closed_24h,
+        COUNT(p.*) FILTER (WHERE p.status = 'CLOSED' AND COALESCE(p.pnl_usd, 0) > 0)::text AS winners_total,
+        COUNT(p.*) FILTER (WHERE p.status = 'CLOSED' AND p.updated_at >= NOW() - INTERVAL '24 hours' AND COALESCE(p.pnl_usd, 0) > 0)::text AS winners_24h,
+        COALESCE(SUM(p.pnl_usd) FILTER (WHERE p.status = 'CLOSED'), 0)::text AS pnl_total,
+        COALESCE(SUM(p.pnl_usd) FILTER (WHERE p.status = 'CLOSED' AND p.updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS pnl_24h
+      FROM
+        (SELECT 1) anchor
+      LEFT JOIN live_orders o
+        ON ($1::text IS NULL OR o.config_name = $1::text)
+       AND o.dry_run = FALSE
+       AND o.trading_enabled = TRUE
+      LEFT JOIN live_positions p
+        ON ($1::text IS NULL OR p.config_name = $1::text)
+       AND p.dry_run = FALSE
+       AND p.trading_enabled = TRUE
+      `,
+      [currentConfigName],
+    ),
   ]);
+
+  const latestPremium = latestSnapshot.rows[0]?.premium_pct ?? null;
+  const latestPremiumNumber =
+    latestPremium === null || latestPremium === undefined ? null : Number(latestPremium);
+  const collectorState: StrikebotCollectorState | null =
+    latestPremiumNumber !== null && Number.isFinite(latestPremiumNumber)
+      ? {
+          mode: Math.abs(latestPremiumNumber) >= 0.45 ? "BURST" : "NORMAL",
+          premium_pct: latestPremium,
+          updated_at: new Date().toISOString(),
+        }
+      : null;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -175,5 +251,8 @@ export async function getStrikebotStatus() {
     recentPositions: recentPositions.rows,
     orderCount: Number(orderCount.rows[0]?.count ?? 0),
     positionStats: positionStats.rows[0] ?? null,
+    currentConfigName,
+    orderSummary: orderSummary.rows[0] ?? null,
+    collectorState,
   };
 }
