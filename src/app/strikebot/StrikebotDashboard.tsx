@@ -571,7 +571,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     const exitAbs = 0.20;
     const now = Date.now();
 
-    const points = allEvents
+    const rawPoints = allEvents
       .map((event) => {
         const premium = toNumber(event.premium_pct);
         const time = new Date(event.created_at).getTime();
@@ -590,11 +590,23 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       )
       .sort((a, b) => a.time - b.time);
 
+    const points = rawPoints.map((point, index) => {
+      const previous = rawPoints[index - 1] ?? null;
+      const next = rawPoints[index + 1] ?? null;
+
+      return {
+        ...point,
+        previousGapSeconds: previous ? (point.time - previous.time) / 1000 : null,
+        nextGapSeconds: next ? (next.time - point.time) / 1000 : null,
+      };
+    });
+
     const bursts: Array<{
       start: number;
       end: number | null;
       peak: number;
       peakAbs: number;
+      highFrequencyPoints: number;
     }> = [];
 
     let activeBurst: {
@@ -602,20 +614,30 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       end: number | null;
       peak: number;
       peakAbs: number;
+      highFrequencyPoints: number;
     } | null = null;
 
     for (const point of points) {
-      if (!activeBurst && point.absPremium >= enterAbs) {
+      const isSecondLevelPoint =
+        (point.previousGapSeconds !== null && point.previousGapSeconds <= 5) ||
+        (point.nextGapSeconds !== null && point.nextGapSeconds <= 5);
+
+      if (!activeBurst && point.absPremium >= enterAbs && isSecondLevelPoint) {
         activeBurst = {
           start: point.time,
           end: null,
           peak: point.premium,
           peakAbs: point.absPremium,
+          highFrequencyPoints: 1,
         };
         continue;
       }
 
       if (!activeBurst) continue;
+
+      if (isSecondLevelPoint) {
+        activeBurst.highFrequencyPoints += 1;
+      }
 
       if (point.absPremium > activeBurst.peakAbs) {
         activeBurst.peak = point.premium;
@@ -624,12 +646,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
       if (point.absPremium <= exitAbs) {
         activeBurst.end = point.time;
-        bursts.push(activeBurst);
+
+        if (activeBurst.highFrequencyPoints >= 3) {
+          bursts.push(activeBurst);
+        }
+
         activeBurst = null;
       }
     }
 
-    if (activeBurst) {
+    if (activeBurst && activeBurst.highFrequencyPoints >= 3) {
       bursts.push(activeBurst);
     }
 
@@ -793,8 +819,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Burst Summary</h2>
           <div className={styles.rulesCompact}>
-            <div><span>Burst total</span><strong>{burstSummary.total}</strong></div>
-            <div><span>Burst 24h</span><strong>{burstSummary.last24h}</strong></div>
+            <div><span>Verified bursts total</span><strong>{burstSummary.total}</strong></div>
+            <div><span>Verified bursts 24h</span><strong>{burstSummary.last24h}</strong></div>
             <div><span>Avg duration</span><strong>{burstSummary.avgDuration}</strong></div>
             <div><span>Avg burst peak</span><strong>{burstSummary.avgPeak}</strong></div>
             <div>
