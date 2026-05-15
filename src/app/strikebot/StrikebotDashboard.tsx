@@ -77,6 +77,15 @@ type CollectorState = {
   updated_at?: string | null;
 };
 
+type BurstSummary = {
+  total: number;
+  last24h: number;
+  avgDurationSeconds: number;
+  avgPeakAbs: number | null;
+  lastPeak: number | null;
+  active: boolean;
+};
+
 type PositionStats = {
   open_positions: string;
   closed_positions: string;
@@ -112,6 +121,7 @@ type StrikebotData = {
   currentConfigName?: string | null;
   orderSummary?: OrderSummary | null;
   availableConfigNames?: string[];
+  burstSummary?: BurstSummary | null;
 };
 
 type ApiResponse = {
@@ -566,127 +576,21 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     collectorMode === "BURST" ||
     (!collectorMode && latestPremiumAbs >= BURST_PREMIUM_FALLBACK_ABS);
 
-  const burstSummary = useMemo(() => {
-    const enterAbs = 0.45;
-    const exitAbs = 0.20;
-    const now = Date.now();
-
-    const rawPoints = allEvents
-      .map((event) => {
-        const premium = toNumber(event.premium_pct);
-        const time = new Date(event.created_at).getTime();
-
-        if (premium === null || !Number.isFinite(time)) return null;
-
-        return {
-          premium,
-          absPremium: Math.abs(premium),
-          time,
-        };
-      })
-      .filter(
-        (point): point is { premium: number; absPremium: number; time: number } =>
-          point !== null,
-      )
-      .sort((a, b) => a.time - b.time);
-
-    const points = rawPoints.map((point, index) => {
-      const previous = rawPoints[index - 1] ?? null;
-      const next = rawPoints[index + 1] ?? null;
-
-      return {
-        ...point,
-        previousGapSeconds: previous ? (point.time - previous.time) / 1000 : null,
-        nextGapSeconds: next ? (next.time - point.time) / 1000 : null,
-      };
-    });
-
-    const bursts: Array<{
-      start: number;
-      end: number | null;
-      peak: number;
-      peakAbs: number;
-      highFrequencyPoints: number;
-    }> = [];
-
-    let activeBurst: {
-      start: number;
-      end: number | null;
-      peak: number;
-      peakAbs: number;
-      highFrequencyPoints: number;
-    } | null = null;
-
-    for (const point of points) {
-      const isSecondLevelPoint =
-        (point.previousGapSeconds !== null && point.previousGapSeconds <= 5) ||
-        (point.nextGapSeconds !== null && point.nextGapSeconds <= 5);
-
-      if (!activeBurst && point.absPremium >= enterAbs && isSecondLevelPoint) {
-        activeBurst = {
-          start: point.time,
-          end: null,
-          peak: point.premium,
-          peakAbs: point.absPremium,
-          highFrequencyPoints: 1,
-        };
-        continue;
-      }
-
-      if (!activeBurst) continue;
-
-      if (isSecondLevelPoint) {
-        activeBurst.highFrequencyPoints += 1;
-      }
-
-      if (point.absPremium > activeBurst.peakAbs) {
-        activeBurst.peak = point.premium;
-        activeBurst.peakAbs = point.absPremium;
-      }
-
-      if (point.absPremium <= exitAbs) {
-        activeBurst.end = point.time;
-
-        if (activeBurst.highFrequencyPoints >= 3) {
-          bursts.push(activeBurst);
-        }
-
-        activeBurst = null;
-      }
-    }
-
-    if (activeBurst && activeBurst.highFrequencyPoints >= 3) {
-      bursts.push(activeBurst);
-    }
-
-    const last24Cutoff = now - 24 * 60 * 60 * 1000;
-    const bursts24h = bursts.filter((burst) => burst.start >= last24Cutoff);
-
-    const durations = bursts
-      .map((burst) => ((burst.end ?? now) - burst.start) / 1000)
-      .filter((duration) => Number.isFinite(duration) && duration >= 0);
-
-    const avgDurationSeconds =
-      durations.length > 0
-        ? durations.reduce((sum, duration) => sum + duration, 0) / durations.length
-        : 0;
-
-    const avgPeakAbs =
-      bursts.length > 0
-        ? bursts.reduce((sum, burst) => sum + burst.peakAbs, 0) / bursts.length
-        : 0;
-
-    const lastBurst = bursts[bursts.length - 1] ?? null;
-
-    return {
-      total: bursts.length,
-      last24h: bursts24h.length,
-      avgDuration: formatDurationSeconds(avgDurationSeconds),
-      avgPeak: avgPeakAbs > 0 ? `${avgPeakAbs.toFixed(4)}%` : "—",
-      lastPeak: lastBurst ? `${lastBurst.peak.toFixed(4)}%` : "—",
-      active: lastBurst?.end === null,
-    };
-  }, [allEvents]);
+  const apiBurstSummary = data?.burstSummary ?? null;
+  const burstSummary = {
+    total: apiBurstSummary?.total ?? 0,
+    last24h: apiBurstSummary?.last24h ?? 0,
+    avgDuration: formatDurationSeconds(apiBurstSummary?.avgDurationSeconds ?? 0),
+    avgPeak:
+      apiBurstSummary?.avgPeakAbs !== null && apiBurstSummary?.avgPeakAbs !== undefined
+        ? `${apiBurstSummary.avgPeakAbs.toFixed(4)}%`
+        : "—",
+    lastPeak:
+      apiBurstSummary?.lastPeak !== null && apiBurstSummary?.lastPeak !== undefined
+        ? `${apiBurstSummary.lastPeak.toFixed(4)}%`
+        : "—",
+    active: apiBurstSummary?.active ?? false,
+  };
 
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
@@ -819,8 +723,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Burst Summary</h2>
           <div className={styles.rulesCompact}>
-            <div><span>Verified bursts total</span><strong>{burstSummary.total}</strong></div>
-            <div><span>Verified bursts 24h</span><strong>{burstSummary.last24h}</strong></div>
+            <div><span>Burst total</span><strong>{burstSummary.total}</strong></div>
+            <div><span>Burst 24h</span><strong>{burstSummary.last24h}</strong></div>
             <div><span>Avg duration</span><strong>{burstSummary.avgDuration}</strong></div>
             <div><span>Avg burst peak</span><strong>{burstSummary.avgPeak}</strong></div>
             <div>
