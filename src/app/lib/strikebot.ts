@@ -108,6 +108,35 @@ export type StrikebotBurstSummary = {
   active: boolean;
 };
 
+export type StrikebotRuntimeConfig = {
+  updated_at: string | null;
+  run_name: string | null;
+  config_name: string | null;
+  executor_enabled: boolean | null;
+  trading_enabled: boolean | null;
+  dry_run: boolean | null;
+  interval_seconds: string | number | null;
+  burst_interval_seconds: string | number | null;
+  lookback_rows: string | number | null;
+  max_snapshot_age_seconds: string | number | null;
+  position_size_usd: string | number | null;
+  leverage: string | number | null;
+  max_open_trades: string | number | null;
+  entry_premium_threshold: string | number | null;
+  entry_zscore_threshold: string | number | null;
+  take_profit_pct: string | number | null;
+  stop_loss_pct: string | number | null;
+  max_hold_minutes: string | number | null;
+  cooldown_minutes: string | number | null;
+  max_daily_trades: string | number | null;
+  max_daily_loss_usd: string | number | null;
+  max_consecutive_losses: string | number | null;
+  use_strike_native_tp_sl: boolean | null;
+  bot_managed_price_exits_enabled: boolean | null;
+  refresh_open_position_rules: boolean | null;
+  config_json: unknown;
+};
+
 const globalForPg = globalThis as unknown as {
   strikebotPool?: Pool;
 };
@@ -261,6 +290,7 @@ export async function getStrikebotStatus() {
     orderCount,
     positionStats,
     orderSummary,
+    runtimeConfig,
     burstSnapshots,
   ] = await Promise.all([
     pool.query<StrikebotSnapshot>(`
@@ -360,6 +390,40 @@ export async function getStrikebotStatus() {
       `,
       [currentConfigName],
     ),
+    pool
+      .query<StrikebotRuntimeConfig>(`
+        SELECT
+          updated_at,
+          run_name,
+          config_name,
+          executor_enabled,
+          trading_enabled,
+          dry_run,
+          interval_seconds,
+          burst_interval_seconds,
+          lookback_rows,
+          max_snapshot_age_seconds,
+          position_size_usd,
+          leverage,
+          max_open_trades,
+          entry_premium_threshold,
+          entry_zscore_threshold,
+          take_profit_pct,
+          stop_loss_pct,
+          max_hold_minutes,
+          cooldown_minutes,
+          max_daily_trades,
+          max_daily_loss_usd,
+          max_consecutive_losses,
+          use_strike_native_tp_sl,
+          bot_managed_price_exits_enabled,
+          refresh_open_position_rules,
+          config_json
+        FROM bot_runtime_config
+        WHERE id = 1
+        LIMIT 1
+      `)
+      .catch(() => ({ rows: [] as StrikebotRuntimeConfig[] })),
     pool.query<PgBurstSnapshotRow>(`
       SELECT id, ts, premium_pct
       FROM market_snapshots
@@ -393,7 +457,8 @@ export async function getStrikebotStatus() {
     recentPositions: recentPositions.rows,
     orderCount: Number(orderCount.rows[0]?.count ?? 0),
     positionStats: positionStats.rows[0] ?? null,
-    currentConfigName,
+    currentConfigName: runtimeConfig.rows[0]?.config_name ?? currentConfigName,
+    runtimeConfig: runtimeConfig.rows[0] ?? null,
     orderSummary: orderSummary.rows[0] ?? null,
     collectorState,
     burstSummary,

@@ -86,6 +86,34 @@ type BurstSummary = {
   active: boolean;
 };
 
+type RuntimeConfig = {
+  updated_at: string | null;
+  run_name: string | null;
+  config_name: string | null;
+  executor_enabled: boolean | null;
+  trading_enabled: boolean | null;
+  dry_run: boolean | null;
+  interval_seconds: string | number | null;
+  burst_interval_seconds: string | number | null;
+  lookback_rows: string | number | null;
+  max_snapshot_age_seconds: string | number | null;
+  position_size_usd: string | number | null;
+  leverage: string | number | null;
+  max_open_trades: string | number | null;
+  entry_premium_threshold: string | number | null;
+  entry_zscore_threshold: string | number | null;
+  take_profit_pct: string | number | null;
+  stop_loss_pct: string | number | null;
+  max_hold_minutes: string | number | null;
+  cooldown_minutes: string | number | null;
+  max_daily_trades: string | number | null;
+  max_daily_loss_usd: string | number | null;
+  max_consecutive_losses: string | number | null;
+  use_strike_native_tp_sl: boolean | null;
+  bot_managed_price_exits_enabled: boolean | null;
+  refresh_open_position_rules: boolean | null;
+};
+
 type PositionStats = {
   open_positions: string;
   closed_positions: string;
@@ -119,6 +147,7 @@ type StrikebotData = {
   positionStats: PositionStats | null;
   collectorState?: CollectorState | null;
   currentConfigName?: string | null;
+  runtimeConfig?: RuntimeConfig | null;
   orderSummary?: OrderSummary | null;
   availableConfigNames?: string[];
   burstSummary?: BurstSummary | null;
@@ -187,6 +216,11 @@ function formatDateTime(value: string | null | undefined): string {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+function formatBool(value: boolean | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value ? "yes" : "no";
 }
 
 function formatTimeOnly(value: string | null | undefined): string {
@@ -592,6 +626,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     active: apiBurstSummary?.active ?? burstModeActive,
   };
 
+  const runtimeConfig = data?.runtimeConfig ?? null;
+  const runtimeConfigAge = runtimeConfig?.updated_at ? ageSeconds(runtimeConfig.updated_at) : null;
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
 
@@ -694,6 +730,54 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <div><span>Last signal</span><strong>{formatDateTime(lastSignalEvent?.created_at)}</strong></div>
             <div><span>Win rate</span><strong>{stats.winRate.toFixed(1)}%</strong></div>
             <div><span>Avg PnL</span><strong className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}>{stats.avgPnl.toFixed(4)}</strong></div>
+          </div>
+        </article>
+
+        <article className={`${styles.panel} ${styles.rulesPanel}`}>
+          <h2>Bot Settings</h2>
+          <div className={styles.rulesCompact}>
+            <div>
+              <span>Config</span>
+              <strong>{runtimeConfig?.config_name ?? activeConfigName ?? "—"}</strong>
+            </div>
+            <div>
+              <span>Updated</span>
+              <strong className={runtimeConfigAge !== null && runtimeConfigAge > 180 ? styles.warnText : undefined}>
+                {runtimeConfigAge === null ? "—" : `${runtimeConfigAge}s ago`}
+              </strong>
+            </div>
+            <div>
+              <span>Mode</span>
+              <strong>{runtimeConfig?.dry_run === false ? "REAL" : runtimeConfig ? "DRY" : "—"} / {formatBool(runtimeConfig?.trading_enabled)}</strong>
+            </div>
+            <div>
+              <span>Size / leverage</span>
+              <strong>{formatNumber(runtimeConfig?.position_size_usd, 2)}$ / {formatNumber(runtimeConfig?.leverage, 1)}x</strong>
+            </div>
+            <div>
+              <span>Entry p / z</span>
+              <strong>±{formatNumber(runtimeConfig?.entry_premium_threshold, 2)}% / ±{formatNumber(runtimeConfig?.entry_zscore_threshold, 2)}</strong>
+            </div>
+            <div>
+              <span>TP / SL</span>
+              <strong>{formatNumber(runtimeConfig?.take_profit_pct, 2)}% / {formatNumber(runtimeConfig?.stop_loss_pct, 2)}%</strong>
+            </div>
+            <div>
+              <span>Hold / cooldown</span>
+              <strong>{formatNumber(runtimeConfig?.max_hold_minutes, 0)}m / {formatNumber(runtimeConfig?.cooldown_minutes, 0)}m</strong>
+            </div>
+            <div>
+              <span>Open / day max</span>
+              <strong>{formatNumber(runtimeConfig?.max_open_trades, 0)} / {formatNumber(runtimeConfig?.max_daily_trades, 0)}</strong>
+            </div>
+            <div>
+              <span>Loss / streak limit</span>
+              <strong>{formatNumber(runtimeConfig?.max_daily_loss_usd, 2)}$ / {formatNumber(runtimeConfig?.max_consecutive_losses, 0)}</strong>
+            </div>
+            <div>
+              <span>Normal / burst loop</span>
+              <strong>{formatNumber(runtimeConfig?.interval_seconds, 0)}s / {formatNumber(runtimeConfig?.burst_interval_seconds, 0)}s</strong>
+            </div>
           </div>
         </article>
 
