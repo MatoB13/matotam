@@ -2,6 +2,7 @@ import { Pool } from "pg";
 
 export type StrikebotSnapshot = {
   id: number;
+  asset?: string | null;
   ts: string | number | null;
   premium_pct: string | number | null;
   binance_adausdt: string | number | null;
@@ -112,6 +113,8 @@ export type StrikebotRuntimeConfig = {
   updated_at: string | null;
   run_name: string | null;
   config_name: string | null;
+  asset: string | null;
+  symbol: string | null;
   executor_enabled: boolean | null;
   trading_enabled: boolean | null;
   dry_run: boolean | null;
@@ -268,11 +271,11 @@ export async function getStrikebotStatus() {
   const currentConfigResult = await pool.query<PgConfigNameRow>(`
     SELECT config_name
     FROM (
-      SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL
+      SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL AND asset = 'ADA'
       UNION ALL
-      SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL
+      SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL AND asset = 'ADA'
       UNION ALL
-      SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL
+      SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL AND asset = 'ADA'
     ) configs
     ORDER BY created_at DESC
     LIMIT 1
@@ -294,8 +297,9 @@ export async function getStrikebotStatus() {
     burstSnapshots,
   ] = await Promise.all([
     pool.query<StrikebotSnapshot>(`
-      SELECT id, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
+      SELECT id, asset, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
       FROM market_snapshots
+      WHERE asset = 'ADA'
       ORDER BY id DESC
       LIMIT 1
     `),
@@ -303,7 +307,8 @@ export async function getStrikebotStatus() {
       SELECT id, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
       FROM live_runtime_events
-      WHERE created_at >= NOW() - INTERVAL '24 hours'
+      WHERE asset = 'ADA'
+        AND created_at >= NOW() - INTERVAL '24 hours'
       ORDER BY id DESC
       LIMIT 2000
     `),
@@ -311,13 +316,15 @@ export async function getStrikebotStatus() {
       SELECT id, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
       FROM live_runtime_events
+      WHERE asset = 'ADA'
       ORDER BY id DESC
       LIMIT 5000
     `),
     pool.query<PgEventCountRow>(`
       SELECT event_type, COUNT(*)::text AS count
       FROM live_runtime_events
-      WHERE created_at >= NOW() - INTERVAL '24 hours'
+      WHERE asset = 'ADA'
+        AND created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY event_type
       ORDER BY count DESC
     `),
@@ -325,6 +332,7 @@ export async function getStrikebotStatus() {
       SELECT id, created_at, run_name, config_name, status, side, order_type,
              price, premium_pct, premium_z, size_usd, leverage, dry_run, trading_enabled
       FROM live_orders
+      WHERE asset = 'ADA'
       ORDER BY id DESC
       LIMIT 1000
     `),
@@ -333,13 +341,15 @@ export async function getStrikebotStatus() {
              entry_price, exit_price, pnl_pct, pnl_usd, exit_reason, size_usd,
              leverage, dry_run, trading_enabled
       FROM live_positions
+      WHERE asset = 'ADA'
       ORDER BY id DESC
       LIMIT 1000
     `),
     pool.query<PgCountRow>(`
       SELECT COUNT(*)::text AS count
       FROM live_orders
-      WHERE created_at >= NOW() - INTERVAL '24 hours'
+      WHERE asset = 'ADA'
+        AND created_at >= NOW() - INTERVAL '24 hours'
     `),
     pool.query<PgPositionStatsRow>(`
       SELECT
@@ -350,6 +360,7 @@ export async function getStrikebotStatus() {
         COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS total_pnl_usd,
         COALESCE(AVG(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS avg_pnl_usd
       FROM live_positions
+      WHERE asset = 'ADA'
     `),
     pool.query<StrikebotOrderSummary>(
       `
@@ -358,7 +369,8 @@ export async function getStrikebotStatus() {
           COUNT(*)::text AS orders_total,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::text AS orders_24h
         FROM live_orders
-        WHERE ($1::text IS NULL OR config_name = $1::text)
+        WHERE asset = 'ADA'
+          AND ($1::text IS NULL OR config_name = $1::text)
           AND dry_run = FALSE
           AND trading_enabled = TRUE
       ),
@@ -371,7 +383,8 @@ export async function getStrikebotStatus() {
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED'), 0)::text AS pnl_total,
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS pnl_24h
         FROM live_positions
-        WHERE ($1::text IS NULL OR config_name = $1::text)
+        WHERE asset = 'ADA'
+          AND ($1::text IS NULL OR config_name = $1::text)
           AND dry_run = FALSE
           AND trading_enabled = TRUE
       )
@@ -396,6 +409,8 @@ export async function getStrikebotStatus() {
           updated_at,
           run_name,
           config_name,
+          asset,
+          symbol,
           executor_enabled,
           trading_enabled,
           dry_run,
@@ -427,7 +442,8 @@ export async function getStrikebotStatus() {
     pool.query<PgBurstSnapshotRow>(`
       SELECT id, ts, premium_pct
       FROM market_snapshots
-      WHERE ts >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '72 hours') * 1000)
+      WHERE asset = 'ADA'
+        AND ts >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '72 hours') * 1000)
       ORDER BY ts ASC
       LIMIT 250000
     `),
