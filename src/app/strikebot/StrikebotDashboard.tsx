@@ -589,7 +589,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       apiBurstSummary?.lastPeak !== null && apiBurstSummary?.lastPeak !== undefined
         ? `${apiBurstSummary.lastPeak.toFixed(4)}%`
         : "—",
-    active: apiBurstSummary?.active ?? false,
+    active: apiBurstSummary?.active ?? burstModeActive,
   };
 
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
