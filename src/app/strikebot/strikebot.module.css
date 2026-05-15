@@ -186,7 +186,7 @@
 
 .dashboardGrid {
   display: grid;
-  grid-template-columns: 280px minmax(300px, 0.6fr) minmax(560px, 1.4fr);
+  grid-template-columns: 280px minmax(260px, 0.55fr) minmax(260px, 0.55fr) minmax(560px, 1.4fr);
   gap: 12px;
 }
 
@@ -694,5 +694,16 @@
   to {
     opacity: 1;
     transform: translateY(-1px);
+  }
+}
+
+
+@media (max-width: 1700px) {
+  .dashboardGrid {
+    grid-template-columns: 280px minmax(260px, 0.65fr) minmax(560px, 1.35fr);
+  }
+
+  .chartPanel {
+    grid-column: span 1;
   }
 }
