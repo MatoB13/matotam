@@ -16,16 +16,22 @@ function unauthorized() {
   );
 }
 
+function normalizeAsset(value: string | null): string {
+  const normalized = String(value || "ADA").trim().toUpperCase();
+  return ["ADA", "BTC", "ZEC"].includes(normalized) ? normalized : "ADA";
+}
+
 export async function GET(request: NextRequest) {
   const expectedToken = process.env.STRIKEBOT_DASHBOARD_TOKEN;
   const token = request.nextUrl.searchParams.get("token");
+  const asset = normalizeAsset(request.nextUrl.searchParams.get("asset"));
 
   if (!expectedToken || !token || token !== expectedToken) {
     return unauthorized();
   }
 
   try {
-    const data = await getStrikebotStatus();
+    const data = await getStrikebotStatus(asset);
 
     return NextResponse.json(
       { ok: true, data },

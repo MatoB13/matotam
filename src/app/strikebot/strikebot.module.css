@@ -707,3 +707,35 @@
     grid-column: span 1;
   }
 }
+
+.assetTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.assetTab {
+  border: 1px solid rgba(168, 181, 197, 0.22);
+  border-radius: 999px;
+  background: rgba(168, 181, 197, 0.08);
+  color: #cbd8e6;
+  padding: 8px 13px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.assetTab:hover {
+  border-color: rgba(69, 239, 108, 0.45);
+  background: rgba(69, 239, 108, 0.11);
+}
+
+.assetTabActive {
+  border-color: rgba(69, 239, 108, 0.72);
+  background: rgba(69, 239, 108, 0.18);
+  color: #e5ffed;
+  box-shadow: 0 0 22px rgba(69, 239, 108, 0.14);
+}

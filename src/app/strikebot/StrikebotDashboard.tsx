@@ -6,6 +6,7 @@ import styles from "./strikebot.module.css";
 
 type RuntimeEvent = {
   id: number;
+  asset?: string | null;
   created_at: string;
   run_name: string | null;
   config_name: string | null;
@@ -22,6 +23,7 @@ type RuntimeEvent = {
 
 type Snapshot = {
   id: number;
+  asset?: string | null;
   ts: string | number | null;
   premium_pct: string | number | null;
   binance_adausdt: string | number | null;
@@ -83,6 +85,9 @@ type BurstSummary = {
   avgDurationSeconds: number;
   avgPeakAbs: number | null;
   lastPeak: number | null;
+  lastStart: string | null;
+  lastEnd: string | null;
+  lastDurationSeconds: number | null;
   active: boolean;
 };
 
@@ -136,6 +141,8 @@ type OrderSummary = {
 };
 
 type StrikebotData = {
+  asset?: string;
+  availableAssets?: string[];
   generatedAt: string;
   latestSnapshot: Snapshot | null;
   recentEvents: RuntimeEvent[];
@@ -162,6 +169,15 @@ type ApiResponse = {
 const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
+const SUPPORTED_ASSETS = ["ADA", "BTC", "ZEC"] as const;
+type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
+
+function normalizeAsset(value: string | null | undefined): DashboardAsset {
+  const normalized = String(value || "ADA").trim().toUpperCase();
+  return SUPPORTED_ASSETS.includes(normalized as DashboardAsset)
+    ? (normalized as DashboardAsset)
+    : "ADA";
+}
 
 function isLiveRow(item: {
   dry_run?: boolean | null;
@@ -400,6 +416,7 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
 }
 
 export default function StrikebotDashboard({ token }: { token: string }) {
+  const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
   const [data, setData] = useState<StrikebotData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -418,7 +435,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}`, {
+      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}&asset=${encodeURIComponent(selectedAsset)}`, {
         cache: "no-store",
       });
       const payload = (await response.json()) as ApiResponse;
@@ -436,11 +453,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, selectedAsset]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+  useEffect(() => {
+    setOpenPositionPage(0);
+    setSignalPage(0);
+  }, [selectedAsset]);
+
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -457,6 +479,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     }, 1000);
     return () => window.clearInterval(id);
   }, [autoRefresh]);
+
+  const isLiveAsset = selectedAsset === "ADA";
 
   const currentEvents = useMemo(() => {
     return data?.recentEvents ?? [];
@@ -599,8 +623,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
   const latestEvent = currentEvents[0] ?? allEvents[0] ?? null;
   const lastSignalEvent = signalHistory[0] ?? null;
-  const tradingEnabled = latestEvent?.trading_enabled ?? false;
-  const dryRun = latestEvent?.dry_run ?? true;
+  const tradingEnabled = isLiveAsset ? (latestEvent?.trading_enabled ?? false) : false;
+  const dryRun = isLiveAsset ? (latestEvent?.dry_run ?? true) : true;
   const latestEventAge = ageSeconds(latestEvent?.created_at);
   const heartbeatOk = latestEventAge !== null && latestEventAge < 180;
   const latestZ = toNumber(latestEvent?.premium_z);
@@ -623,6 +647,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       apiBurstSummary?.lastPeak !== null && apiBurstSummary?.lastPeak !== undefined
         ? `${apiBurstSummary.lastPeak.toFixed(4)}%`
         : "—",
+    lastStart: formatDateTime(apiBurstSummary?.lastStart),
+    lastEnd: formatDateTime(apiBurstSummary?.lastEnd),
+    lastDuration: formatDurationSeconds(apiBurstSummary?.lastDurationSeconds ?? 0),
     active: apiBurstSummary?.active ?? burstModeActive,
   };
 
@@ -638,11 +665,25 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
-          <h1 className={styles.title}>STRIKE BOT <span>LIVE DASHBOARD</span></h1>
+          <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} DASHBOARD</span></h1>
           {burstModeActive ? (
             <div className={styles.burstBanner}>Burst mode activated!</div>
           ) : null}
-          <p className={styles.subtitle}>Read-only status dashboard. No order controls.</p>
+          <p className={styles.subtitle}>{isLiveAsset ? "Read-only status dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
+          <div className={styles.assetTabs} role="tablist" aria-label="Strike bot asset tabs">
+            {SUPPORTED_ASSETS.map((asset) => (
+              <button
+                key={asset}
+                type="button"
+                role="tab"
+                aria-selected={selectedAsset === asset}
+                className={selectedAsset === asset ? `${styles.assetTab} ${styles.assetTabActive}` : styles.assetTab}
+                onClick={() => setSelectedAsset(asset)}
+              >
+                {asset}{asset === "ADA" ? " live" : " data"}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className={styles.headerActions}>
@@ -672,14 +713,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <span className={heartbeatOk ? styles.liveDot : styles.staleDot} />
             {tradingEnabled ? "LIVE" : "SAFE"}
           </strong>
-          <small>{dryRun ? "DRY-RUN" : "REAL ORDERS ENABLED"}</small>
+          <small>{isLiveAsset ? (dryRun ? "DRY-RUN" : "REAL ORDERS ENABLED") : "COLLECTOR ONLY"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Heartbeat</span>
           <strong className={heartbeatOk ? styles.goodText : styles.badText}>
             {latestEventAge === null ? "—" : `${latestEventAge}s`}
           </strong>
-          <small>latest live event</small>
+          <small>{isLiveAsset ? "latest live event" : "latest market snapshot"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Premium</span>
@@ -697,25 +738,25 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
         <article className={styles.metricCard}>
           <span>Current Price</span>
-          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, 6)}</strong>
-          <small>ADA/USD</small>
+          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}</strong>
+          <small>{selectedAsset}/USD</small>
         </article>
         <article className={styles.metricCard}>
-          <span>Orders 24h</span>
-          <strong>{stats.orderCount}</strong>
-          <small>open + close</small>
+          <span>{isLiveAsset ? "Orders 24h" : "Signals 24h"}</span>
+          <strong>{isLiveAsset ? stats.orderCount : signalHistory.length}</strong>
+          <small>{isLiveAsset ? "open + close" : "collector candidates"}</small>
         </article>
         <article className={styles.metricCard}>
-          <span>Open Positions</span>
-          <strong>{stats.openPositions}</strong>
-          <small>all live positions</small>
+          <span>{isLiveAsset ? "Open Positions" : "Open Positions"}</span>
+          <strong>{isLiveAsset ? stats.openPositions : "N/A"}</strong>
+          <small>{isLiveAsset ? "all live positions" : "collector only"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>PnL 24h</span>
-          <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
-            {stats.totalPnl.toFixed(4)}
+          <strong className={isLiveAsset ? (stats.totalPnl >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
+            {isLiveAsset ? stats.totalPnl.toFixed(4) : "N/A"}
           </strong>
-          <small>USD</small>
+          <small>{isLiveAsset ? "USD" : "collector only"}</small>
         </article>
       </section>
 
@@ -723,8 +764,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={styles.panel}>
           <h2>Signals Summary · Running 24h</h2>
           <div className={styles.statRows}>
-            <div><span>Order events</span><strong className={styles.goodText}>{stats.orderEvents}</strong></div>
-            <div><span>Rejected signals</span><strong className={styles.warnText}>{stats.rejected}</strong></div>
+            <div><span>{isLiveAsset ? "Order events" : "Signal candidates"}</span><strong className={styles.goodText}>{isLiveAsset ? stats.orderEvents : signalHistory.length}</strong></div>
+            <div><span>{isLiveAsset ? "Rejected signals" : "Collector asset"}</span><strong className={isLiveAsset ? styles.warnText : undefined}>{isLiveAsset ? stats.rejected : selectedAsset}</strong></div>
             <div><span>No signal</span><strong>{stats.noSignals}</strong></div>
             <div><span>Total events</span><strong>{stats.totalEvents}</strong></div>
             <div><span>Last signal</span><strong>{formatDateTime(lastSignalEvent?.created_at)}</strong></div>
@@ -734,7 +775,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
-          <h2>Bot Settings</h2>
+          <h2>{isLiveAsset ? "Bot Settings" : "Collector Signal View"}</h2>
           <div className={styles.rulesCompact}>
             <div>
               <span>Config</span>
@@ -782,26 +823,36 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
-          <h2>Orders Summary</h2>
-          <div className={styles.rulesCompact}>
-            <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
-            <div><span>Orders total</span><strong>{stats.orderCountAll}</strong></div>
-            <div><span>Orders 24h</span><strong>{stats.orderCount}</strong></div>
-            <div><span>Closed total</span><strong>{stats.closedPositionsAll}</strong></div>
-            <div><span>Win rate total</span><strong>{stats.winRateAll.toFixed(1)}%</strong></div>
-            <div>
-              <span>P&L total</span>
-              <strong className={stats.totalPnlAll >= 0 ? styles.goodText : styles.badText}>
-                {stats.totalPnlAll.toFixed(4)}
-              </strong>
+          <h2>{isLiveAsset ? "Orders Summary" : "Market Summary"}</h2>
+          {isLiveAsset ? (
+            <div className={styles.rulesCompact}>
+              <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
+              <div><span>Orders total</span><strong>{stats.orderCountAll}</strong></div>
+              <div><span>Orders 24h</span><strong>{stats.orderCount}</strong></div>
+              <div><span>Closed total</span><strong>{stats.closedPositionsAll}</strong></div>
+              <div><span>Win rate total</span><strong>{stats.winRateAll.toFixed(1)}%</strong></div>
+              <div>
+                <span>P&L total</span>
+                <strong className={stats.totalPnlAll >= 0 ? styles.goodText : styles.badText}>
+                  {stats.totalPnlAll.toFixed(4)}
+                </strong>
+              </div>
+              <div>
+                <span>P&L 24h</span>
+                <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
+                  {stats.totalPnl.toFixed(4)}
+                </strong>
+              </div>
             </div>
-            <div>
-              <span>P&L 24h</span>
-              <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
-                {stats.totalPnl.toFixed(4)}
-              </strong>
+          ) : (
+            <div className={styles.rulesCompact}>
+              <div><span>Asset</span><strong>{selectedAsset}</strong></div>
+              <div><span>Mode</span><strong>collector only</strong></div>
+              <div><span>Signal candidates</span><strong>{signalHistory.length}</strong></div>
+              <div><span>Latest premium</span><strong>{formatPct(data?.latestSnapshot?.premium_pct)}</strong></div>
+              <div><span>Current price</span><strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}$</strong></div>
             </div>
-          </div>
+          )}
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
@@ -817,6 +868,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 {burstSummary.lastPeak}
               </strong>
             </div>
+            <div><span>Last burst start</span><strong>{burstSummary.lastStart}</strong></div>
+            <div><span>Last burst end</span><strong>{burstSummary.lastEnd}</strong></div>
+            <div><span>Last burst duration</span><strong>{burstSummary.lastDuration}</strong></div>
             <div>
               <span>Status</span>
               <strong className={burstSummary.active ? styles.warnText : styles.mutedText}>
@@ -827,14 +881,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.chartPanel}`}>
-          <h2>Premium Live Chart · Running 24h</h2>
+          <h2>{selectedAsset} Premium Chart · Running 24h</h2>
           <PremiumSparkline events={currentEvents} />
         </article>
 
         <article className={styles.panelFull}>
           <div className={styles.panelTitleRow}>
-            <h2>Open Positions</h2>
-            <span>{openPositions.length} total</span>
+            <h2>{isLiveAsset ? "Open Positions" : "Open Positions · N/A"}</h2>
+            <span>{isLiveAsset ? `${openPositions.length} total` : "collector only"}</span>
           </div>
           <div className={styles.tableWrap}>
             <table>
@@ -910,7 +964,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={styles.panelWide}>
-          <h2>Orders · Running 24h</h2>
+          <h2>{isLiveAsset ? "Orders · Running 24h" : "Orders · N/A"}</h2>
           <div className={styles.tableWrap}>
             <table>
               <thead>

@@ -1,5 +1,7 @@
 import { Pool } from "pg";
 
+export type StrikebotAsset = "ADA" | "BTC" | "ZEC";
+
 export type StrikebotSnapshot = {
   id: number;
   asset?: string | null;
@@ -13,6 +15,7 @@ export type StrikebotSnapshot = {
 
 export type StrikebotRuntimeEvent = {
   id: number;
+  asset?: string | null;
   created_at: string;
   run_name: string | null;
   config_name: string | null;
@@ -30,6 +33,7 @@ export type StrikebotRuntimeEvent = {
 
 export type StrikebotOrder = {
   id: number;
+  asset?: string | null;
   run_name: string | null;
   config_name: string | null;
   created_at: string;
@@ -47,6 +51,7 @@ export type StrikebotOrder = {
 
 export type StrikebotPosition = {
   id: number;
+  asset?: string | null;
   run_name: string | null;
   config_name: string | null;
   created_at: string;
@@ -106,6 +111,9 @@ export type StrikebotBurstSummary = {
   avgDurationSeconds: number;
   avgPeakAbs: number | null;
   lastPeak: number | null;
+  lastStart: string | null;
+  lastEnd: string | null;
+  lastDurationSeconds: number | null;
   active: boolean;
 };
 
@@ -113,8 +121,6 @@ export type StrikebotRuntimeConfig = {
   updated_at: string | null;
   run_name: string | null;
   config_name: string | null;
-  asset: string | null;
-  symbol: string | null;
   executor_enabled: boolean | null;
   trading_enabled: boolean | null;
   dry_run: boolean | null;
@@ -140,6 +146,8 @@ export type StrikebotRuntimeConfig = {
   config_json: unknown;
 };
 
+const SUPPORTED_ASSETS: StrikebotAsset[] = ["ADA", "BTC", "ZEC"];
+
 const globalForPg = globalThis as unknown as {
   strikebotPool?: Pool;
 };
@@ -163,10 +171,31 @@ function getPool() {
   return globalForPg.strikebotPool;
 }
 
+function normalizeAsset(value: string | null | undefined): StrikebotAsset {
+  const normalized = String(value || "ADA").trim().toUpperCase();
+  return SUPPORTED_ASSETS.includes(normalized as StrikebotAsset)
+    ? (normalized as StrikebotAsset)
+    : "ADA";
+}
+
 function toFiniteNumber(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function emptyOrderSummary(configName: string | null): StrikebotOrderSummary {
+  return {
+    config_name: configName,
+    orders_total: "0",
+    orders_24h: "0",
+    closed_total: "0",
+    closed_24h: "0",
+    winners_total: "0",
+    winners_24h: "0",
+    pnl_total: "0",
+    pnl_24h: "0",
+  };
 }
 
 function computeBurstSummaryFromSnapshots(rows: PgBurstSnapshotRow[]): StrikebotBurstSummary {
@@ -253,6 +282,7 @@ function computeBurstSummaryFromSnapshots(rows: PgBurstSnapshotRow[]): Strikebot
       : null;
 
   const lastBurst = bursts[bursts.length - 1] ?? null;
+  const lastDurationSeconds = lastBurst ? Math.max(0, (lastBurst.end - lastBurst.start) / 1000) : null;
   const active = lastBurst ? now - lastBurst.end <= activeGraceSeconds * 1000 : false;
 
   return {
@@ -261,27 +291,181 @@ function computeBurstSummaryFromSnapshots(rows: PgBurstSnapshotRow[]): Strikebot
     avgDurationSeconds,
     avgPeakAbs,
     lastPeak: lastBurst?.peak ?? null,
+    lastStart: lastBurst ? new Date(lastBurst.start).toISOString() : null,
+    lastEnd: lastBurst ? new Date(lastBurst.end).toISOString() : null,
+    lastDurationSeconds,
     active,
   };
 }
 
-export async function getStrikebotStatus() {
-  const pool = getPool();
+function buildSyntheticEventsFromSnapshots(
+  rows: StrikebotSnapshot[],
+  asset: StrikebotAsset,
+): StrikebotRuntimeEvent[] {
+  const sortedRows = [...rows].sort((a, b) => {
+    const aTs = toFiniteNumber(a.ts) ?? 0;
+    const bTs = toFiniteNumber(b.ts) ?? 0;
+    return aTs - bTs;
+  });
+  const premiums = sortedRows
+    .map((row) => toFiniteNumber(row.premium_pct))
+    .filter((value): value is number => value !== null);
+  const mean = premiums.length > 0 ? premiums.reduce((sum, value) => sum + value, 0) / premiums.length : 0;
+  const variance =
+    premiums.length > 1
+      ? premiums.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (premiums.length - 1)
+      : 0;
+  const std = Math.sqrt(variance) || 0;
+  const premiumThreshold = 0.55;
+  const zThreshold = 1.8;
 
-  const currentConfigResult = await pool.query<PgConfigNameRow>(`
-    SELECT config_name
-    FROM (
-      SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL AND asset = 'ADA'
-      UNION ALL
-      SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL AND asset = 'ADA'
-      UNION ALL
-      SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL AND asset = 'ADA'
-    ) configs
-    ORDER BY created_at DESC
-    LIMIT 1
-  `);
+  return sortedRows
+    .map((row): StrikebotRuntimeEvent | null => {
+      const ts = toFiniteNumber(row.ts);
+      if (ts === null) return null;
+      const premium = toFiniteNumber(row.premium_pct);
+      const price = toFiniteNumber(row.binance_adausdt);
+      const z = premium !== null && std > 0 ? (premium - mean) / std : null;
+      const signal =
+        premium !== null && z !== null && premium >= premiumThreshold && z >= zThreshold
+          ? "SHORT"
+          : premium !== null && z !== null && premium <= -premiumThreshold && z <= -zThreshold
+            ? "LONG"
+            : null;
+
+      return {
+        id: row.id,
+        asset,
+        created_at: new Date(ts).toISOString(),
+        run_name: null,
+        config_name: `${asset.toLowerCase()}_collector_signal_view`,
+        event_type: signal ? "SIGNAL_DETECTED" : "NO_SIGNAL",
+        severity: null,
+        message: signal ? `${asset} collector signal candidate` : null,
+        signal,
+        premium_pct: premium,
+        premium_z: z,
+        price,
+        dry_run: true,
+        trading_enabled: false,
+        metadata: { source: "market_snapshots" },
+      };
+    })
+    .filter((event): event is StrikebotRuntimeEvent => event !== null)
+    .reverse();
+}
+
+export async function getStrikebotStatus(assetInput?: string | null) {
+  const asset = normalizeAsset(assetInput);
+  const pool = getPool();
+  const isLiveAsset = asset === "ADA";
+
+  const currentConfigResult = isLiveAsset
+    ? await pool.query<PgConfigNameRow>(
+        `
+        SELECT config_name
+        FROM (
+          SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL AND asset = $1
+          UNION ALL
+          SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL AND asset = $1
+          UNION ALL
+          SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL AND asset = $1
+        ) configs
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [asset],
+      )
+    : { rows: [] as PgConfigNameRow[] };
 
   const currentConfigName = currentConfigResult.rows[0]?.config_name ?? null;
+
+  const latestSnapshotQuery = pool.query<StrikebotSnapshot>(
+    `
+    SELECT id, asset, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
+    FROM market_snapshots
+    WHERE asset = $1
+    ORDER BY id DESC
+    LIMIT 1
+    `,
+    [asset],
+  );
+
+  const marketEventsQuery = pool.query<StrikebotSnapshot>(
+    `
+    SELECT id, asset, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
+    FROM market_snapshots
+    WHERE asset = $1
+      AND ts >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours') * 1000)
+    ORDER BY ts DESC
+    LIMIT 5000
+    `,
+    [asset],
+  );
+
+  const burstSnapshotsQuery = pool.query<PgBurstSnapshotRow>(
+    `
+    SELECT id, ts, premium_pct
+    FROM market_snapshots
+    WHERE asset = $1
+      AND ts >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '72 hours') * 1000)
+    ORDER BY ts ASC
+    LIMIT 250000
+    `,
+    [asset],
+  );
+
+  if (!isLiveAsset) {
+    const [latestSnapshot, marketEvents, burstSnapshots] = await Promise.all([
+      latestSnapshotQuery,
+      marketEventsQuery,
+      burstSnapshotsQuery,
+    ]);
+    const syntheticEvents = buildSyntheticEventsFromSnapshots(marketEvents.rows, asset);
+    const eventCounts = syntheticEvents.reduce<Record<string, number>>((acc, event) => {
+      acc[event.event_type] = (acc[event.event_type] ?? 0) + 1;
+      return acc;
+    }, {});
+    const latestPremium = latestSnapshot.rows[0]?.premium_pct ?? null;
+    const latestPremiumNumber = toFiniteNumber(latestPremium);
+    const collectorState: StrikebotCollectorState | null =
+      latestPremiumNumber !== null
+        ? {
+            mode: Math.abs(latestPremiumNumber) >= 0.45 ? "BURST" : "NORMAL",
+            premium_pct: latestPremium,
+            updated_at: new Date().toISOString(),
+          }
+        : null;
+
+    return {
+      asset,
+      availableAssets: SUPPORTED_ASSETS,
+      generatedAt: new Date().toISOString(),
+      latestSnapshot: latestSnapshot.rows[0] ?? null,
+      recentEvents: syntheticEvents,
+      allEvents: syntheticEvents,
+      eventCounts: Object.entries(eventCounts).map(([event_type, count]) => ({
+        event_type,
+        count: String(count),
+      })),
+      recentOrders: [] as StrikebotOrder[],
+      recentPositions: [] as StrikebotPosition[],
+      orderCount: 0,
+      positionStats: {
+        open_positions: "0",
+        closed_positions: "0",
+        winners: "0",
+        losers: "0",
+        total_pnl_usd: "0",
+        avg_pnl_usd: "0",
+      },
+      currentConfigName: `${asset.toLowerCase()}_collector_signal_view`,
+      runtimeConfig: null,
+      orderSummary: emptyOrderSummary(null),
+      collectorState,
+      burstSummary: computeBurstSummaryFromSnapshots(burstSnapshots.rows),
+    };
+  }
 
   const [
     latestSnapshot,
@@ -296,62 +480,75 @@ export async function getStrikebotStatus() {
     runtimeConfig,
     burstSnapshots,
   ] = await Promise.all([
-    pool.query<StrikebotSnapshot>(`
-      SELECT id, asset, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
-      FROM market_snapshots
-      WHERE asset = 'ADA'
-      ORDER BY id DESC
-      LIMIT 1
-    `),
-    pool.query<StrikebotRuntimeEvent>(`
-      SELECT id, created_at, run_name, config_name, event_type, severity, message,
+    latestSnapshotQuery,
+    pool.query<StrikebotRuntimeEvent>(
+      `
+      SELECT id, asset, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
       FROM live_runtime_events
-      WHERE asset = 'ADA'
+      WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
       ORDER BY id DESC
       LIMIT 2000
-    `),
-    pool.query<StrikebotRuntimeEvent>(`
-      SELECT id, created_at, run_name, config_name, event_type, severity, message,
+      `,
+      [asset],
+    ),
+    pool.query<StrikebotRuntimeEvent>(
+      `
+      SELECT id, asset, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
       FROM live_runtime_events
-      WHERE asset = 'ADA'
+      WHERE asset = $1
       ORDER BY id DESC
       LIMIT 5000
-    `),
-    pool.query<PgEventCountRow>(`
+      `,
+      [asset],
+    ),
+    pool.query<PgEventCountRow>(
+      `
       SELECT event_type, COUNT(*)::text AS count
       FROM live_runtime_events
-      WHERE asset = 'ADA'
+      WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY event_type
       ORDER BY count DESC
-    `),
-    pool.query<StrikebotOrder>(`
-      SELECT id, created_at, run_name, config_name, status, side, order_type,
+      `,
+      [asset],
+    ),
+    pool.query<StrikebotOrder>(
+      `
+      SELECT id, asset, created_at, run_name, config_name, status, side, order_type,
              price, premium_pct, premium_z, size_usd, leverage, dry_run, trading_enabled
       FROM live_orders
-      WHERE asset = 'ADA'
+      WHERE asset = $1
       ORDER BY id DESC
       LIMIT 1000
-    `),
-    pool.query<StrikebotPosition>(`
-      SELECT id, created_at, updated_at, run_name, config_name, status, side,
+      `,
+      [asset],
+    ),
+    pool.query<StrikebotPosition>(
+      `
+      SELECT id, asset, created_at, updated_at, run_name, config_name, status, side,
              entry_price, exit_price, pnl_pct, pnl_usd, exit_reason, size_usd,
              leverage, dry_run, trading_enabled
       FROM live_positions
-      WHERE asset = 'ADA'
+      WHERE asset = $1
       ORDER BY id DESC
       LIMIT 1000
-    `),
-    pool.query<PgCountRow>(`
+      `,
+      [asset],
+    ),
+    pool.query<PgCountRow>(
+      `
       SELECT COUNT(*)::text AS count
       FROM live_orders
-      WHERE asset = 'ADA'
+      WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
-    `),
-    pool.query<PgPositionStatsRow>(`
+      `,
+      [asset],
+    ),
+    pool.query<PgPositionStatsRow>(
+      `
       SELECT
         COUNT(*) FILTER (WHERE status = 'OPEN')::text AS open_positions,
         COUNT(*) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours')::text AS closed_positions,
@@ -360,8 +557,10 @@ export async function getStrikebotStatus() {
         COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS total_pnl_usd,
         COALESCE(AVG(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS avg_pnl_usd
       FROM live_positions
-      WHERE asset = 'ADA'
-    `),
+      WHERE asset = $1
+      `,
+      [asset],
+    ),
     pool.query<StrikebotOrderSummary>(
       `
       WITH order_agg AS (
@@ -369,7 +568,7 @@ export async function getStrikebotStatus() {
           COUNT(*)::text AS orders_total,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::text AS orders_24h
         FROM live_orders
-        WHERE asset = 'ADA'
+        WHERE asset = $2
           AND ($1::text IS NULL OR config_name = $1::text)
           AND dry_run = FALSE
           AND trading_enabled = TRUE
@@ -383,7 +582,7 @@ export async function getStrikebotStatus() {
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED'), 0)::text AS pnl_total,
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS pnl_24h
         FROM live_positions
-        WHERE asset = 'ADA'
+        WHERE asset = $2
           AND ($1::text IS NULL OR config_name = $1::text)
           AND dry_run = FALSE
           AND trading_enabled = TRUE
@@ -401,16 +600,15 @@ export async function getStrikebotStatus() {
       FROM order_agg
       CROSS JOIN position_agg
       `,
-      [currentConfigName],
+      [currentConfigName, asset],
     ),
     pool
-      .query<StrikebotRuntimeConfig>(`
+      .query<StrikebotRuntimeConfig>(
+        `
         SELECT
           updated_at,
           run_name,
           config_name,
-          asset,
-          symbol,
           executor_enabled,
           trading_enabled,
           dry_run,
@@ -436,24 +634,19 @@ export async function getStrikebotStatus() {
           config_json
         FROM bot_runtime_config
         WHERE id = 1
+          AND asset = $1
         LIMIT 1
-      `)
+        `,
+        [asset],
+      )
       .catch(() => ({ rows: [] as StrikebotRuntimeConfig[] })),
-    pool.query<PgBurstSnapshotRow>(`
-      SELECT id, ts, premium_pct
-      FROM market_snapshots
-      WHERE asset = 'ADA'
-        AND ts >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '72 hours') * 1000)
-      ORDER BY ts ASC
-      LIMIT 250000
-    `),
+    burstSnapshotsQuery,
   ]);
 
   const latestPremium = latestSnapshot.rows[0]?.premium_pct ?? null;
-  const latestPremiumNumber =
-    latestPremium === null || latestPremium === undefined ? null : Number(latestPremium);
+  const latestPremiumNumber = toFiniteNumber(latestPremium);
   const collectorState: StrikebotCollectorState | null =
-    latestPremiumNumber !== null && Number.isFinite(latestPremiumNumber)
+    latestPremiumNumber !== null
       ? {
           mode: Math.abs(latestPremiumNumber) >= 0.45 ? "BURST" : "NORMAL",
           premium_pct: latestPremium,
@@ -461,9 +654,9 @@ export async function getStrikebotStatus() {
         }
       : null;
 
-  const burstSummary = computeBurstSummaryFromSnapshots(burstSnapshots.rows);
-
   return {
+    asset,
+    availableAssets: SUPPORTED_ASSETS,
     generatedAt: new Date().toISOString(),
     latestSnapshot: latestSnapshot.rows[0] ?? null,
     recentEvents: recentEvents.rows,
@@ -475,8 +668,8 @@ export async function getStrikebotStatus() {
     positionStats: positionStats.rows[0] ?? null,
     currentConfigName: runtimeConfig.rows[0]?.config_name ?? currentConfigName,
     runtimeConfig: runtimeConfig.rows[0] ?? null,
-    orderSummary: orderSummary.rows[0] ?? null,
+    orderSummary: orderSummary.rows[0] ?? emptyOrderSummary(currentConfigName),
     collectorState,
-    burstSummary,
+    burstSummary: computeBurstSummaryFromSnapshots(burstSnapshots.rows),
   };
 }
