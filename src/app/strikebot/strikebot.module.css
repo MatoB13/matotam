@@ -747,11 +747,6 @@
      and no hidden horizontal content.
 ---------------------------------------------------------------------------- */
 
-html,
-body {
-  max-width: 100%;
-  overflow-x: hidden;
-}
 
 .pageShell {
   width: 100%;
