@@ -133,6 +133,7 @@ export type StrikebotRuntimeConfig = {
   max_open_trades: string | number | null;
   entry_premium_threshold: string | number | null;
   entry_zscore_threshold: string | number | null;
+  entry_zscore_mode: string | null;
   take_profit_pct: string | number | null;
   stop_loss_pct: string | number | null;
   max_hold_minutes: string | number | null;
@@ -621,6 +622,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
           max_open_trades,
           entry_premium_threshold,
           entry_zscore_threshold,
+          entry_zscore_mode,
           take_profit_pct,
           stop_loss_pct,
           max_hold_minutes,

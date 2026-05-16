@@ -107,6 +107,7 @@ type RuntimeConfig = {
   max_open_trades: string | number | null;
   entry_premium_threshold: string | number | null;
   entry_zscore_threshold: string | number | null;
+  entry_zscore_mode: string | null;
   take_profit_pct: string | number | null;
   stop_loss_pct: string | number | null;
   max_hold_minutes: string | number | null;
@@ -913,6 +914,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <div>
               <span>Entry p / z</span>
               <strong>±{formatNumber(runtimeConfig?.entry_premium_threshold, 2)}% / ±{formatNumber(runtimeConfig?.entry_zscore_threshold, 2)}</strong>
+            </div>
+            <div>
+              <span>Z mode</span>
+              <strong>{runtimeConfig?.entry_zscore_mode ?? "roll2000"}</strong>
             </div>
             <div>
               <span>TP / SL</span>
