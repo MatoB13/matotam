@@ -415,6 +415,121 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
   );
 }
 
+
+function ZScoreSparkline({ events }: { events: RuntimeEvent[] }) {
+  const zLimit = 2.50;
+  const width = 900;
+  const height = 210;
+  const padding = 18;
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  const points = events
+    .slice(0, 288)
+    .reverse()
+    .map((event) => ({
+      z: toNumber(event.premium_z),
+      time: event.created_at,
+      type: event.event_type,
+    }))
+    .filter((point): point is { z: number; time: string; type: string } => point.z !== null);
+
+  if (points.length < 2) {
+    return <div className={styles.emptyChart}>Not enough z-score data yet</div>;
+  }
+
+  const values = points.map((point) => point.z);
+  const min = Math.min(...values, -zLimit, 0);
+  const max = Math.max(...values, zLimit, 0);
+  const range = max - min || 1;
+
+  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
+
+  const coords = points.map((point, index) => ({
+    x: toX(index),
+    y: toY(point.z),
+    ...point,
+  }));
+
+  const zeroY = toY(0);
+  const upperLimitY = toY(zLimit);
+  const lowerLimitY = toY(-zLimit);
+  const latest = points[points.length - 1].z;
+  const hoverPoint = hoverIndex === null ? null : coords[hoverIndex] || null;
+
+  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeX = ((event.clientX - rect.left) / rect.width) * width;
+    const chartWidth = width - padding * 2;
+    const ratio = Math.min(1, Math.max(0, (relativeX - padding) / chartWidth));
+    const nextIndex = Math.round(ratio * (coords.length - 1));
+    setHoverIndex(nextIndex);
+  }
+
+  return (
+    <div className={`${styles.chartBox} ${styles.zChartBox}`}>
+      <div className={styles.chartHeaderRow}>
+        <span>Z-score sparkline · running 24h</span>
+        <strong className={Math.abs(latest) >= zLimit ? styles.warnText : styles.zScoreText}>{latest.toFixed(3)}</strong>
+      </div>
+      <svg
+        className={styles.sparkline}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="24 hour z-score sparkline"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
+        <defs>
+          <linearGradient id="zScoreLine" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#b06cff" />
+            <stop offset="100%" stopColor="#5bc8ff" />
+          </linearGradient>
+        </defs>
+        <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
+        <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.zLimitLine} />
+        <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.zLimitLine} />
+        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.zLimitLabel}>+2.50</text>
+        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.zLimitLabel}>-2.50</text>
+        <polyline
+          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#zScoreLine)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {coords.map((coord, index) => (
+          <circle
+            key={`${coord.x}-${coord.y}-${index}`}
+            cx={coord.x}
+            cy={coord.y}
+            r={index === coords.length - 1 ? 5 : 2.2}
+            className={styles.zSparkDot}
+          />
+        ))}
+        {hoverPoint ? (
+          <g className={styles.tooltipLayer}>
+            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
+            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="6" className={styles.zHoverDot} />
+            <g transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}>
+              <rect width="170" height="54" rx="10" className={styles.tooltipBox} />
+              <text x="10" y="20" className={styles.zTooltipTextStrong}>{hoverPoint.z.toFixed(3)}</text>
+              <text x="10" y="39" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
+            </g>
+          </g>
+        ) : null}
+        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
+      </svg>
+      <div className={styles.chartFooterRow}>
+        <span>min {Math.min(...values).toFixed(3)}</span>
+        <span>limits ±{zLimit.toFixed(2)}</span>
+        <span>max {Math.max(...values).toFixed(3)}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
   const [data, setData] = useState<StrikebotData | null>(null);
@@ -882,7 +997,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
         <article className={`${styles.panel} ${styles.chartPanel}`}>
           <h2>{selectedAsset} Premium Chart · Running 24h</h2>
-          <PremiumSparkline events={currentEvents} />
+          <div className={styles.stackedCharts}>
+            <PremiumSparkline events={currentEvents} />
+            <ZScoreSparkline events={currentEvents} />
+          </div>
         </article>
 
         <article className={styles.panelFull}>

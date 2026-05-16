@@ -267,6 +267,49 @@
   fill: #45ef6c;
 }
 
+.stackedCharts {
+  display: grid;
+  gap: 14px;
+}
+
+.zChartBox {
+  border-color: rgba(176, 108, 255, 0.2);
+  background: rgba(15, 10, 32, 0.34);
+}
+
+.zScoreText {
+  color: #5bc8ff !important;
+}
+
+.zSparkDot {
+  fill: #5bc8ff;
+}
+
+.zLimitLine {
+  stroke: rgba(176, 108, 255, 0.85);
+  stroke-width: 1.6;
+  stroke-dasharray: 8 8;
+}
+
+.zLimitLabel {
+  fill: #b06cff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.zHoverDot {
+  fill: #e8f2ff;
+  stroke: #5bc8ff;
+  stroke-width: 3;
+}
+
+.zTooltipTextStrong {
+  fill: #5bc8ff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+
 .emptyChart,
 .emptyCard {
   min-height: 160px;
