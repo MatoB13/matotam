@@ -925,79 +925,81 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <Pager page={openPositionPage} totalItems={openPositions.length} onChange={setOpenPositionPage} />
         </article>
 
-        <article className={styles.panelWide}>
-          <h2>Positions</h2>
-          <div className={styles.tableWrap}>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Status</th>
-                  <th>Side</th>
-                  <th>Entry</th>
-                  <th>Exit</th>
-                  <th>PnL USD</th>
-                  <th>PnL %</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions24h.length === 0 ? (
-                  <tr><td colSpan={8} className={styles.emptyCell}>No 24h positions yet</td></tr>
-                ) : (
-                  positions24h.slice(0, 20).map((position) => (
-                    <tr key={position.id}>
-                      <td>{position.id}</td>
-                      <td>{position.status}</td>
-                      <td className={classForSide(position.side)}>{position.side}</td>
-                      <td>{formatNumber(position.entry_price, 6)}</td>
-                      <td>{formatNumber(position.exit_price, 6)}</td>
-                      <td className={classForPnl(position.pnl_usd)}>{formatNumber(position.pnl_usd, 4)}</td>
-                      <td className={classForPnl(position.pnl_pct)}>{formatPct(position.pnl_pct)}</td>
-                      <td>{position.exit_reason ?? "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
+        <div className={styles.bottomPanelsGrid}>
+          <article className={`${styles.panelFull} ${styles.bottomPanelItem}`}>
+            <h2>Positions</h2>
+            <div className={styles.tableWrap}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Status</th>
+                    <th>Side</th>
+                    <th>Entry</th>
+                    <th>Exit</th>
+                    <th>PnL USD</th>
+                    <th>PnL %</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions24h.length === 0 ? (
+                    <tr><td colSpan={8} className={styles.emptyCell}>No 24h positions yet</td></tr>
+                  ) : (
+                    positions24h.slice(0, 20).map((position) => (
+                      <tr key={position.id}>
+                        <td>{position.id}</td>
+                        <td>{position.status}</td>
+                        <td className={classForSide(position.side)}>{position.side}</td>
+                        <td>{formatNumber(position.entry_price, 6)}</td>
+                        <td>{formatNumber(position.exit_price, 6)}</td>
+                        <td className={classForPnl(position.pnl_usd)}>{formatNumber(position.pnl_usd, 4)}</td>
+                        <td className={classForPnl(position.pnl_pct)}>{formatPct(position.pnl_pct)}</td>
+                        <td>{position.exit_reason ?? "—"}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
 
-        <article className={styles.panelWide}>
-          <h2>{isLiveAsset ? "Orders · Running 24h" : "Orders · N/A"}</h2>
-          <div className={styles.tableWrap}>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Status</th>
-                  <th>Side</th>
-                  <th>Price</th>
-                  <th>Size</th>
-                  <th>Lev</th>
-                  <th>Created CET</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOrders24h.length === 0 ? (
-                  <tr><td colSpan={7} className={styles.emptyCell}>No 24h orders yet</td></tr>
-                ) : (
-                  visibleOrders24h.slice(0, 20).map((order) => (
-                    <tr key={order.id}>
-                      <td>{order.id}</td>
-                      <td>{order.status}</td>
-                      <td className={classForSide(order.side)}>{order.side}</td>
-                      <td>{formatNumber(order.price, 6)}</td>
-                      <td>{formatNumber(order.size_usd, 2)}</td>
-                      <td>{formatNumber(order.leverage, 1)}x</td>
-                      <td>{formatDateTime(order.created_at)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
+          <article className={`${styles.panelFull} ${styles.bottomPanelItem}`}>
+            <h2>{isLiveAsset ? "Orders · Running 24h" : "Orders · N/A"}</h2>
+            <div className={styles.tableWrap}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Status</th>
+                    <th>Side</th>
+                    <th>Price</th>
+                    <th>Size</th>
+                    <th>Lev</th>
+                    <th>Created CET</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleOrders24h.length === 0 ? (
+                    <tr><td colSpan={7} className={styles.emptyCell}>No 24h orders yet</td></tr>
+                  ) : (
+                    visibleOrders24h.slice(0, 20).map((order) => (
+                      <tr key={order.id}>
+                        <td>{order.id}</td>
+                        <td>{order.status}</td>
+                        <td className={classForSide(order.side)}>{order.side}</td>
+                        <td>{formatNumber(order.price, 6)}</td>
+                        <td>{formatNumber(order.size_usd, 2)}</td>
+                        <td>{formatNumber(order.leverage, 1)}x</td>
+                        <td>{formatDateTime(order.created_at)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
 
         <article className={styles.panelFull}>
           <div className={styles.panelTitleRow}>
