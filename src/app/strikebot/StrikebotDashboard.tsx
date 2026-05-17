@@ -302,8 +302,7 @@ function Pager({ page, totalItems, onChange }: { page: number; totalItems: numbe
   );
 }
 
-function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
-  const premiumLimit = 0.60;
+function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; premiumLimit: number }) {
   const width = 900;
   const height = 210;
   const padding = 18;
@@ -375,8 +374,8 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
         <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
         <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.limitLine} />
         <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.limitLine} />
-        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.limitLabel}>+0.60%</text>
-        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.limitLabel}>-0.60%</text>
+        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.limitLabel}>+{premiumLimit.toFixed(2)}%</text>
+        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.limitLabel}>-{premiumLimit.toFixed(2)}%</text>
         <polyline
           points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
           fill="none"
@@ -417,8 +416,7 @@ function PremiumSparkline({ events }: { events: RuntimeEvent[] }) {
 }
 
 
-function ZScoreSparkline({ events }: { events: RuntimeEvent[] }) {
-  const zLimit = 2.50;
+function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: number }) {
   const width = 900;
   const height = 210;
   const padding = 18;
@@ -490,8 +488,8 @@ function ZScoreSparkline({ events }: { events: RuntimeEvent[] }) {
         <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
         <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.zLimitLine} />
         <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.zLimitLine} />
-        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.zLimitLabel}>+2.50</text>
-        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.zLimitLabel}>-2.50</text>
+        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.zLimitLabel}>+{zLimit.toFixed(2)}</text>
+        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.zLimitLabel}>-{zLimit.toFixed(2)}</text>
         <polyline
           points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
           fill="none"
@@ -770,6 +768,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   };
 
   const runtimeConfig = data?.runtimeConfig ?? null;
+  const premiumChartLimit = toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.60;
+  const zScoreChartLimit = toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.50;
   const runtimeConfigAge = runtimeConfig?.updated_at ? ageSeconds(runtimeConfig.updated_at) : null;
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
@@ -1003,8 +1003,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.chartPanel}`}>
           <h2>{selectedAsset} Premium Chart · Running 24h</h2>
           <div className={styles.stackedCharts}>
-            <PremiumSparkline events={currentEvents} />
-            <ZScoreSparkline events={currentEvents} />
+            <PremiumSparkline events={currentEvents} premiumLimit={premiumChartLimit} />
+            <ZScoreSparkline events={currentEvents} zLimit={zScoreChartLimit} />
           </div>
         </article>
 
