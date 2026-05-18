@@ -874,6 +874,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     );
   }, [visiblePositions]);
 
+  const lastClosedPosition = useMemo(() => {
+    return visiblePositions
+      .filter((position) => String(position.status ?? "").toUpperCase() === "CLOSED")
+      .sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at || "").getTime();
+        const bTime = new Date(b.updated_at || b.created_at || "").getTime();
+        return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+      })[0] ?? null;
+  }, [visiblePositions]);
+
   const openPositions = useMemo(() => {
     return visiblePositions.filter((position) =>
       isFreshOpenPosition(position, runtimeConfig),
@@ -1359,6 +1369,20 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               <div>
                 <span>Closed total</span>
                 <strong>{stats.closedPositionsAll}</strong>
+              </div>
+              <div>
+                <span>Last order</span>
+                <strong
+                  className={
+                    lastClosedPosition
+                      ? classForPnl(lastClosedPosition.pnl_usd)
+                      : styles.mutedText
+                  }
+                >
+                  {lastClosedPosition
+                    ? `${formatDateTime(lastClosedPosition.updated_at || lastClosedPosition.created_at)} / ${formatNumber(lastClosedPosition.pnl_usd, 4)}$`
+                    : "—"}
+                </strong>
               </div>
               <div>
                 <span>Win rate total</span>
