@@ -712,7 +712,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       totalEvents,
       noSignals,
       rejected,
-      orderEvents,
+      orderEvents: orderCount24h,
       orderCount: orderCount24h,
       orderCountAll,
       openPositions: openPositions.length,
@@ -880,7 +880,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={styles.panel}>
           <h2>Signals Summary · Running 24h</h2>
           <div className={styles.statRows}>
-            <div><span>{isLiveAsset ? "Order events" : "Signal candidates"}</span><strong className={styles.goodText}>{isLiveAsset ? stats.orderEvents : signalHistory.length}</strong></div>
+            <div><span>{isLiveAsset ? "Orders 24h" : "Signal candidates"}</span><strong className={styles.goodText}>{isLiveAsset ? stats.orderEvents : signalHistory.length}</strong></div>
             <div><span>{isLiveAsset ? "Rejected signals" : "Collector asset"}</span><strong className={isLiveAsset ? styles.warnText : undefined}>{isLiveAsset ? stats.rejected : selectedAsset}</strong></div>
             <div><span>No signal</span><strong>{stats.noSignals}</strong></div>
             <div><span>Total events</span><strong>{stats.totalEvents}</strong></div>
