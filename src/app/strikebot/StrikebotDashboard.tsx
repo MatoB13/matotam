@@ -174,7 +174,9 @@ const SUPPORTED_ASSETS = ["ADA", "BTC", "ZEC"] as const;
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
 
 function normalizeAsset(value: string | null | undefined): DashboardAsset {
-  const normalized = String(value || "ADA").trim().toUpperCase();
+  const normalized = String(value || "ADA")
+    .trim()
+    .toUpperCase();
   return SUPPORTED_ASSETS.includes(normalized as DashboardAsset)
     ? (normalized as DashboardAsset)
     : "ADA";
@@ -195,7 +197,10 @@ function matchesConfig(
   return item.config_name === configName;
 }
 
-function isWithinHours(value: string | null | undefined, hours: number): boolean {
+function isWithinHours(
+  value: string | null | undefined,
+  hours: number,
+): boolean {
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
@@ -208,13 +213,19 @@ function toNumber(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatNumber(value: string | number | null | undefined, digits = 4): string {
+function formatNumber(
+  value: string | number | null | undefined,
+  digits = 4,
+): string {
   const parsed = toNumber(value);
   if (parsed === null) return "—";
   return parsed.toFixed(digits);
 }
 
-function formatPct(value: string | number | null | undefined, digits = 4): string {
+function formatPct(
+  value: string | number | null | undefined,
+  digits = 4,
+): string {
   const parsed = toNumber(value);
   if (parsed === null) return "—";
   return `${parsed.toFixed(digits)}%`;
@@ -288,21 +299,73 @@ function pageItems<T>(items: T[], page: number): T[] {
   return items.slice(start, start + PAGE_SIZE);
 }
 
-function Pager({ page, totalItems, onChange }: { page: number; totalItems: number; onChange: (page: number) => void }) {
+function isFreshOpenPosition(
+  position: Position,
+  runtimeConfig: RuntimeConfig | null,
+): boolean {
+  if (String(position.status ?? "").toUpperCase() !== "OPEN") return false;
+
+  const maxHoldMinutes = toNumber(runtimeConfig?.max_hold_minutes) ?? 240;
+  const safetyGraceMinutes = 30;
+  const maxOpenAgeMs = (maxHoldMinutes + safetyGraceMinutes) * 60 * 1000;
+
+  const createdAt = new Date(position.created_at ?? "").getTime();
+  if (!Number.isFinite(createdAt)) return false;
+
+  return Date.now() - createdAt <= maxOpenAgeMs;
+}
+
+function isStaleOpenPosition(
+  position: Position,
+  runtimeConfig: RuntimeConfig | null,
+): boolean {
+  if (String(position.status ?? "").toUpperCase() !== "OPEN") return false;
+  return !isFreshOpenPosition(position, runtimeConfig);
+}
+
+function Pager({
+  page,
+  totalItems,
+  onChange,
+}: {
+  page: number;
+  totalItems: number;
+  onChange: (page: number) => void;
+}) {
   const pages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
 
   if (pages <= 1) return null;
 
   return (
     <div className={styles.pager}>
-      <button type="button" onClick={() => onChange(Math.max(0, page - 1))} disabled={page === 0}>Prev</button>
-      <span>Page {page + 1} / {pages}</span>
-      <button type="button" onClick={() => onChange(Math.min(pages - 1, page + 1))} disabled={page >= pages - 1}>Next</button>
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, page - 1))}
+        disabled={page === 0}
+      >
+        Prev
+      </button>
+      <span>
+        Page {page + 1} / {pages}
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(pages - 1, page + 1))}
+        disabled={page >= pages - 1}
+      >
+        Next
+      </button>
     </div>
   );
 }
 
-function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; premiumLimit: number }) {
+function PremiumSparkline({
+  events,
+  premiumLimit,
+}: {
+  events: RuntimeEvent[];
+  premiumLimit: number;
+}) {
   const width = 900;
   const height = 210;
   const padding = 18;
@@ -316,7 +379,10 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
       time: event.created_at,
       type: event.event_type,
     }))
-    .filter((point): point is { premium: number; time: string; type: string } => point.premium !== null);
+    .filter(
+      (point): point is { premium: number; time: string; type: string } =>
+        point.premium !== null,
+    );
 
   if (points.length < 2) {
     return <div className={styles.emptyChart}>Not enough premium data yet</div>;
@@ -327,8 +393,10 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
   const max = Math.max(...values, premiumLimit, 0);
   const range = max - min || 1;
 
-  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
-  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
+  const toX = (index: number) =>
+    padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) =>
+    padding + ((max - value) / range) * (height - padding * 2);
 
   const coords = points.map((point, index) => ({
     x: toX(index),
@@ -355,7 +423,9 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
     <div className={styles.chartBox}>
       <div className={styles.chartHeaderRow}>
         <span>Premium sparkline · running 24h</span>
-        <strong className={latest >= 0 ? styles.goodText : styles.badText}>{latest.toFixed(4)}%</strong>
+        <strong className={latest >= 0 ? styles.goodText : styles.badText}>
+          {latest.toFixed(4)}%
+        </strong>
       </div>
       <svg
         className={styles.sparkline}
@@ -371,13 +441,47 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
             <stop offset="100%" stopColor="#45ef6c" />
           </linearGradient>
         </defs>
-        <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
-        <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.limitLine} />
-        <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.limitLine} />
-        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.limitLabel}>+{premiumLimit.toFixed(2)}%</text>
-        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.limitLabel}>-{premiumLimit.toFixed(2)}%</text>
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={zeroY}
+          y2={zeroY}
+          className={styles.zeroLine}
+        />
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={upperLimitY}
+          y2={upperLimitY}
+          className={styles.limitLine}
+        />
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={lowerLimitY}
+          y2={lowerLimitY}
+          className={styles.limitLine}
+        />
+        <text
+          x={width - padding - 4}
+          y={upperLimitY - 6}
+          textAnchor="end"
+          className={styles.limitLabel}
+        >
+          +{premiumLimit.toFixed(2)}%
+        </text>
+        <text
+          x={width - padding - 4}
+          y={lowerLimitY + 14}
+          textAnchor="end"
+          className={styles.limitLabel}
+        >
+          -{premiumLimit.toFixed(2)}%
+        </text>
         <polyline
-          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
+          points={coords
+            .map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`)
+            .join(" ")}
           fill="none"
           stroke="url(#premiumLine)"
           strokeWidth="4"
@@ -395,16 +499,44 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
         ))}
         {hoverPoint ? (
           <g className={styles.tooltipLayer}>
-            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
-            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="6" className={styles.hoverDot} />
-            <g transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}>
-              <rect width="170" height="54" rx="10" className={styles.tooltipBox} />
-              <text x="10" y="20" className={styles.tooltipTextStrong}>{hoverPoint.premium.toFixed(4)}%</text>
-              <text x="10" y="39" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
+            <line
+              x1={hoverPoint.x}
+              x2={hoverPoint.x}
+              y1={padding}
+              y2={height - padding}
+              className={styles.hoverLine}
+            />
+            <circle
+              cx={hoverPoint.x}
+              cy={hoverPoint.y}
+              r="6"
+              className={styles.hoverDot}
+            />
+            <g
+              transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}
+            >
+              <rect
+                width="170"
+                height="54"
+                rx="10"
+                className={styles.tooltipBox}
+              />
+              <text x="10" y="20" className={styles.tooltipTextStrong}>
+                {hoverPoint.premium.toFixed(4)}%
+              </text>
+              <text x="10" y="39" className={styles.tooltipText}>
+                {formatTimeOnly(hoverPoint.time)}
+              </text>
             </g>
           </g>
         ) : null}
-        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
+        <rect
+          x={padding}
+          y={padding}
+          width={width - padding * 2}
+          height={height - padding * 2}
+          className={styles.hoverCapture}
+        />
       </svg>
       <div className={styles.chartFooterRow}>
         <span>min {Math.min(...values).toFixed(4)}%</span>
@@ -415,8 +547,13 @@ function PremiumSparkline({ events, premiumLimit }: { events: RuntimeEvent[]; pr
   );
 }
 
-
-function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: number }) {
+function ZScoreSparkline({
+  events,
+  zLimit,
+}: {
+  events: RuntimeEvent[];
+  zLimit: number;
+}) {
   const width = 900;
   const height = 210;
   const padding = 18;
@@ -430,7 +567,10 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
       time: event.created_at,
       type: event.event_type,
     }))
-    .filter((point): point is { z: number; time: string; type: string } => point.z !== null);
+    .filter(
+      (point): point is { z: number; time: string; type: string } =>
+        point.z !== null,
+    );
 
   if (points.length < 2) {
     return <div className={styles.emptyChart}>Not enough z-score data yet</div>;
@@ -441,8 +581,10 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
   const max = Math.max(...values, zLimit, 0);
   const range = max - min || 1;
 
-  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
-  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
+  const toX = (index: number) =>
+    padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) =>
+    padding + ((max - value) / range) * (height - padding * 2);
 
   const coords = points.map((point, index) => ({
     x: toX(index),
@@ -469,7 +611,13 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
     <div className={`${styles.chartBox} ${styles.zChartBox}`}>
       <div className={styles.chartHeaderRow}>
         <span>Z-score sparkline · running 24h</span>
-        <strong className={Math.abs(latest) >= zLimit ? styles.warnText : styles.zScoreText}>{latest.toFixed(3)}</strong>
+        <strong
+          className={
+            Math.abs(latest) >= zLimit ? styles.warnText : styles.zScoreText
+          }
+        >
+          {latest.toFixed(3)}
+        </strong>
       </div>
       <svg
         className={styles.sparkline}
@@ -485,13 +633,47 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
             <stop offset="100%" stopColor="#5bc8ff" />
           </linearGradient>
         </defs>
-        <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
-        <line x1={padding} x2={width - padding} y1={upperLimitY} y2={upperLimitY} className={styles.zLimitLine} />
-        <line x1={padding} x2={width - padding} y1={lowerLimitY} y2={lowerLimitY} className={styles.zLimitLine} />
-        <text x={width - padding - 4} y={upperLimitY - 6} textAnchor="end" className={styles.zLimitLabel}>+{zLimit.toFixed(2)}</text>
-        <text x={width - padding - 4} y={lowerLimitY + 14} textAnchor="end" className={styles.zLimitLabel}>-{zLimit.toFixed(2)}</text>
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={zeroY}
+          y2={zeroY}
+          className={styles.zeroLine}
+        />
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={upperLimitY}
+          y2={upperLimitY}
+          className={styles.zLimitLine}
+        />
+        <line
+          x1={padding}
+          x2={width - padding}
+          y1={lowerLimitY}
+          y2={lowerLimitY}
+          className={styles.zLimitLine}
+        />
+        <text
+          x={width - padding - 4}
+          y={upperLimitY - 6}
+          textAnchor="end"
+          className={styles.zLimitLabel}
+        >
+          +{zLimit.toFixed(2)}
+        </text>
+        <text
+          x={width - padding - 4}
+          y={lowerLimitY + 14}
+          textAnchor="end"
+          className={styles.zLimitLabel}
+        >
+          -{zLimit.toFixed(2)}
+        </text>
         <polyline
-          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`).join(" ")}
+          points={coords
+            .map((coord) => `${coord.x.toFixed(1)},${coord.y.toFixed(1)}`)
+            .join(" ")}
           fill="none"
           stroke="url(#zScoreLine)"
           strokeWidth="4"
@@ -509,16 +691,44 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
         ))}
         {hoverPoint ? (
           <g className={styles.tooltipLayer}>
-            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
-            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="6" className={styles.zHoverDot} />
-            <g transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}>
-              <rect width="170" height="54" rx="10" className={styles.tooltipBox} />
-              <text x="10" y="20" className={styles.zTooltipTextStrong}>{hoverPoint.z.toFixed(3)}</text>
-              <text x="10" y="39" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
+            <line
+              x1={hoverPoint.x}
+              x2={hoverPoint.x}
+              y1={padding}
+              y2={height - padding}
+              className={styles.hoverLine}
+            />
+            <circle
+              cx={hoverPoint.x}
+              cy={hoverPoint.y}
+              r="6"
+              className={styles.zHoverDot}
+            />
+            <g
+              transform={`translate(${Math.min(width - 185, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.y - 42)})`}
+            >
+              <rect
+                width="170"
+                height="54"
+                rx="10"
+                className={styles.tooltipBox}
+              />
+              <text x="10" y="20" className={styles.zTooltipTextStrong}>
+                {hoverPoint.z.toFixed(3)}
+              </text>
+              <text x="10" y="39" className={styles.tooltipText}>
+                {formatTimeOnly(hoverPoint.time)}
+              </text>
             </g>
           </g>
         ) : null}
-        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
+        <rect
+          x={padding}
+          y={padding}
+          width={width - padding * 2}
+          height={height - padding * 2}
+          className={styles.hoverCapture}
+        />
       </svg>
       <div className={styles.chartFooterRow}>
         <span>min {Math.min(...values).toFixed(3)}</span>
@@ -549,9 +759,12 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}&asset=${encodeURIComponent(selectedAsset)}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/strikebot/status?token=${encodeURIComponent(token)}&asset=${encodeURIComponent(selectedAsset)}`,
+        {
+          cache: "no-store",
+        },
+      );
       const payload = (await response.json()) as ApiResponse;
 
       if (!response.ok || !payload.ok || !payload.data) {
@@ -577,7 +790,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     setSignalPage(0);
   }, [selectedAsset]);
 
-
   useEffect(() => {
     if (!autoRefresh) return;
     const id = window.setInterval(() => {
@@ -601,7 +813,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   }, [data]);
 
   const liveEvents = useMemo(() => {
-    return currentEvents.filter((event) => event.dry_run === false && event.trading_enabled === true);
+    return currentEvents.filter(
+      (event) => event.dry_run === false && event.trading_enabled === true,
+    );
   }, [currentEvents]);
 
   const allEvents = useMemo(() => {
@@ -624,11 +838,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       .sort((a, b) => {
         const aTime = new Date(a.created_at ?? "").getTime();
         const bTime = new Date(b.created_at ?? "").getTime();
-        return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+        return (
+          (Number.isFinite(bTime) ? bTime : 0) -
+          (Number.isFinite(aTime) ? aTime : 0)
+        );
       });
 
     return candidates[0]?.config_name ?? null;
   }, [data]);
+
+  const runtimeConfig = data?.runtimeConfig ?? null;
 
   const visibleOrders = useMemo(() => {
     return (data?.recentOrders ?? []).filter((order) => {
@@ -650,12 +869,22 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   }, [data, activeConfigName]);
 
   const positions24h = useMemo(() => {
-    return visiblePositions.filter((position) => isWithinHours(position.updated_at || position.created_at, 24));
+    return visiblePositions.filter((position) =>
+      isWithinHours(position.updated_at || position.created_at, 24),
+    );
   }, [visiblePositions]);
 
   const openPositions = useMemo(() => {
-    return visiblePositions.filter((position) => position.status === "OPEN");
-  }, [visiblePositions]);
+    return visiblePositions.filter((position) =>
+      isFreshOpenPosition(position, runtimeConfig),
+    );
+  }, [visiblePositions, runtimeConfig]);
+
+  const staleOpenPositions = useMemo(() => {
+    return visiblePositions.filter((position) =>
+      isStaleOpenPosition(position, runtimeConfig),
+    );
+  }, [visiblePositions, runtimeConfig]);
 
   useEffect(() => {
     setOpenPositionPage((page) => Math.min(page, pageCount(openPositions) - 1));
@@ -679,33 +908,58 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       );
     }).length;
 
-    const noSignals = currentEvents.filter((event) => event.event_type === "NO_SIGNAL").length;
-    const rejected = currentEvents.filter((event) => event.event_type === "SIGNAL_REJECTED").length;
+    const noSignals = currentEvents.filter(
+      (event) => event.event_type === "NO_SIGNAL",
+    ).length;
+    const rejected = currentEvents.filter(
+      (event) => event.event_type === "SIGNAL_REJECTED",
+    ).length;
     const totalEvents = currentEvents.length;
 
-    const closedPositions = positions24h.filter((position) => position.status === "CLOSED");
-    const winners = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) > 0).length;
-    const losers = closedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) < 0).length;
+    const closedPositions = positions24h.filter(
+      (position) => position.status === "CLOSED",
+    );
+    const winners = closedPositions.filter(
+      (position) => (toNumber(position.pnl_usd) ?? 0) > 0,
+    ).length;
+    const losers = closedPositions.filter(
+      (position) => (toNumber(position.pnl_usd) ?? 0) < 0,
+    ).length;
     const closed = winners + losers;
-    const totalPnl = closedPositions.reduce((sum, position) => sum + (toNumber(position.pnl_usd) ?? 0), 0);
-    const avgPnl = closedPositions.length > 0 ? totalPnl / closedPositions.length : 0;
+    const totalPnl = closedPositions.reduce(
+      (sum, position) => sum + (toNumber(position.pnl_usd) ?? 0),
+      0,
+    );
+    const avgPnl =
+      closedPositions.length > 0 ? totalPnl / closedPositions.length : 0;
     const winRate = closed > 0 ? (winners / closed) * 100 : 0;
 
     const apiSummary = data?.orderSummary ?? null;
-    const allClosedPositions = visiblePositions.filter((position) => position.status === "CLOSED");
-    const allWinners = allClosedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) > 0).length;
-    const allClosedForRate = allClosedPositions.filter((position) => (toNumber(position.pnl_usd) ?? 0) !== 0).length;
+    const allClosedPositions = visiblePositions.filter(
+      (position) => position.status === "CLOSED",
+    );
+    const allWinners = allClosedPositions.filter(
+      (position) => (toNumber(position.pnl_usd) ?? 0) > 0,
+    ).length;
+    const allClosedForRate = allClosedPositions.filter(
+      (position) => (toNumber(position.pnl_usd) ?? 0) !== 0,
+    ).length;
     const totalPnlAllFromPositions = allClosedPositions.reduce(
       (sum, position) => sum + (toNumber(position.pnl_usd) ?? 0),
       0,
     );
 
-    const orderCountAll = toNumber(apiSummary?.orders_total) ?? visibleOrders.length;
-    const orderCount24h = toNumber(apiSummary?.orders_24h) ?? visibleOrders24h.length;
-    const closedPositionsAll = toNumber(apiSummary?.closed_total) ?? allClosedPositions.length;
+    const orderCountAll =
+      toNumber(apiSummary?.orders_total) ?? visibleOrders.length;
+    const orderCount24h =
+      toNumber(apiSummary?.orders_24h) ?? visibleOrders24h.length;
+    const closedPositionsAll =
+      toNumber(apiSummary?.closed_total) ?? allClosedPositions.length;
     const winnersAll = toNumber(apiSummary?.winners_total) ?? allWinners;
-    const winRateAll = closedPositionsAll > 0 ? (winnersAll / closedPositionsAll) * 100 : 0;
-    const totalPnlAll = toNumber(apiSummary?.pnl_total) ?? totalPnlAllFromPositions;
+    const winRateAll =
+      closedPositionsAll > 0 ? (winnersAll / closedPositionsAll) * 100 : 0;
+    const totalPnlAll =
+      toNumber(apiSummary?.pnl_total) ?? totalPnlAllFromPositions;
     const totalPnl24h = toNumber(apiSummary?.pnl_24h) ?? totalPnl;
 
     return {
@@ -737,13 +991,17 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
   const latestEvent = currentEvents[0] ?? allEvents[0] ?? null;
   const lastSignalEvent = signalHistory[0] ?? null;
-  const tradingEnabled = isLiveAsset ? (latestEvent?.trading_enabled ?? false) : false;
+  const tradingEnabled = isLiveAsset
+    ? (latestEvent?.trading_enabled ?? false)
+    : false;
   const dryRun = isLiveAsset ? (latestEvent?.dry_run ?? true) : true;
   const latestEventAge = ageSeconds(latestEvent?.created_at);
   const heartbeatOk = latestEventAge !== null && latestEventAge < 180;
   const latestZ = toNumber(latestEvent?.premium_z);
   const collectorMode = String(data?.collectorState?.mode ?? "").toUpperCase();
-  const latestPremiumAbs = Math.abs(toNumber(data?.latestSnapshot?.premium_pct) ?? 0);
+  const latestPremiumAbs = Math.abs(
+    toNumber(data?.latestSnapshot?.premium_pct) ?? 0,
+  );
   const burstModeActive =
     collectorMode === "BURST" ||
     (!collectorMode && latestPremiumAbs >= BURST_PREMIUM_FALLBACK_ABS);
@@ -752,25 +1010,34 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const burstSummary = {
     total: apiBurstSummary?.total ?? 0,
     last24h: apiBurstSummary?.last24h ?? 0,
-    avgDuration: formatDurationSeconds(apiBurstSummary?.avgDurationSeconds ?? 0),
+    avgDuration: formatDurationSeconds(
+      apiBurstSummary?.avgDurationSeconds ?? 0,
+    ),
     avgPeak:
-      apiBurstSummary?.avgPeakAbs !== null && apiBurstSummary?.avgPeakAbs !== undefined
+      apiBurstSummary?.avgPeakAbs !== null &&
+      apiBurstSummary?.avgPeakAbs !== undefined
         ? `${apiBurstSummary.avgPeakAbs.toFixed(4)}%`
         : "—",
     lastPeak:
-      apiBurstSummary?.lastPeak !== null && apiBurstSummary?.lastPeak !== undefined
+      apiBurstSummary?.lastPeak !== null &&
+      apiBurstSummary?.lastPeak !== undefined
         ? `${apiBurstSummary.lastPeak.toFixed(4)}%`
         : "—",
     lastStart: formatDateTime(apiBurstSummary?.lastStart),
     lastEnd: formatDateTime(apiBurstSummary?.lastEnd),
-    lastDuration: formatDurationSeconds(apiBurstSummary?.lastDurationSeconds ?? 0),
+    lastDuration: formatDurationSeconds(
+      apiBurstSummary?.lastDurationSeconds ?? 0,
+    ),
     active: apiBurstSummary?.active ?? burstModeActive,
   };
 
-  const runtimeConfig = data?.runtimeConfig ?? null;
-  const premiumChartLimit = toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.60;
-  const zScoreChartLimit = toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.50;
-  const runtimeConfigAge = runtimeConfig?.updated_at ? ageSeconds(runtimeConfig.updated_at) : null;
+  const premiumChartLimit =
+    toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.6;
+  const zScoreChartLimit =
+    toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.5;
+  const runtimeConfigAge = runtimeConfig?.updated_at
+    ? ageSeconds(runtimeConfig.updated_at)
+    : null;
   const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
 
@@ -781,29 +1048,48 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
-          <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} DASHBOARD</span></h1>
+          <h1 className={styles.title}>
+            STRIKE BOT <span>{selectedAsset} DASHBOARD</span>
+          </h1>
           {burstModeActive ? (
             <div className={styles.burstBanner}>Burst mode activated!</div>
           ) : null}
-          <p className={styles.subtitle}>{isLiveAsset ? "Read-only status dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
-          <div className={styles.assetTabs} role="tablist" aria-label="Strike bot asset tabs">
+          <p className={styles.subtitle}>
+            {isLiveAsset
+              ? "Read-only status dashboard. No order controls."
+              : "Collector-only market monitor. No order controls."}
+          </p>
+          <div
+            className={styles.assetTabs}
+            role="tablist"
+            aria-label="Strike bot asset tabs"
+          >
             {SUPPORTED_ASSETS.map((asset) => (
               <button
                 key={asset}
                 type="button"
                 role="tab"
                 aria-selected={selectedAsset === asset}
-                className={selectedAsset === asset ? `${styles.assetTab} ${styles.assetTabActive}` : styles.assetTab}
+                className={
+                  selectedAsset === asset
+                    ? `${styles.assetTab} ${styles.assetTabActive}`
+                    : styles.assetTab
+                }
                 onClick={() => setSelectedAsset(asset)}
               >
-                {asset}{asset === "ADA" ? " live" : " data"}
+                {asset}
+                {asset === "ADA" ? " live" : " data"}
               </button>
             ))}
           </div>
         </div>
 
         <div className={styles.headerActions}>
-          <button className={styles.refreshButton} onClick={() => void loadData()} disabled={loading}>
+          <button
+            className={styles.refreshButton}
+            onClick={() => void loadData()}
+            disabled={loading}
+          >
             {loading ? "Refreshing…" : "Refresh"}
           </button>
           <label className={styles.toggleLabel}>
@@ -815,7 +1101,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             Auto {autoRefresh ? `${countdown}s` : "off"}
           </label>
           <p className={styles.updatedText}>
-            Updated CET: {lastRefresh ? formatDateTime(lastRefresh.toISOString()) : "—"}
+            Updated CET:{" "}
+            {lastRefresh ? formatDateTime(lastRefresh.toISOString()) : "—"}
           </p>
         </div>
       </header>
@@ -825,51 +1112,95 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <section className={styles.metricsGrid}>
         <article className={`${styles.metricCard} ${styles.statusCard}`}>
           <span>Status</span>
-          <strong className={tradingEnabled ? styles.goodText : styles.warnText}>
+          <strong
+            className={tradingEnabled ? styles.goodText : styles.warnText}
+          >
             <span className={heartbeatOk ? styles.liveDot : styles.staleDot} />
             {tradingEnabled ? "LIVE" : "SAFE"}
           </strong>
-          <small>{isLiveAsset ? (dryRun ? "DRY-RUN" : "REAL ORDERS ENABLED") : "COLLECTOR ONLY"}</small>
+          <small>
+            {isLiveAsset
+              ? dryRun
+                ? "DRY-RUN"
+                : "REAL ORDERS ENABLED"
+              : "COLLECTOR ONLY"}
+          </small>
         </article>
         <article className={styles.metricCard}>
           <span>Heartbeat</span>
           <strong className={heartbeatOk ? styles.goodText : styles.badText}>
             {latestEventAge === null ? "—" : `${latestEventAge}s`}
           </strong>
-          <small>{isLiveAsset ? "latest live event" : "latest market snapshot"}</small>
+          <small>
+            {isLiveAsset ? "latest live event" : "latest market snapshot"}
+          </small>
         </article>
         <article className={styles.metricCard}>
           <span>Premium</span>
-          <strong className={toNumber(data?.latestSnapshot?.premium_pct) !== null && Number(data?.latestSnapshot?.premium_pct) >= 0 ? styles.goodText : styles.badText}>
+          <strong
+            className={
+              toNumber(data?.latestSnapshot?.premium_pct) !== null &&
+              Number(data?.latestSnapshot?.premium_pct) >= 0
+                ? styles.goodText
+                : styles.badText
+            }
+          >
             {formatPct(data?.latestSnapshot?.premium_pct)}
           </strong>
           <small>snapshot #{data?.latestSnapshot?.id ?? "—"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Z-score</span>
-          <strong className={latestZ !== null && Math.abs(latestZ) >= 2 ? styles.warnText : undefined}>
+          <strong
+            className={
+              latestZ !== null && Math.abs(latestZ) >= 2
+                ? styles.warnText
+                : undefined
+            }
+          >
             {formatNumber(latestEvent?.premium_z, 3)}
           </strong>
           <small>latest event</small>
         </article>
         <article className={styles.metricCard}>
           <span>Current Price</span>
-          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}</strong>
+          <strong>
+            {formatNumber(
+              data?.latestSnapshot?.binance_adausdt,
+              selectedAsset === "BTC" ? 2 : 6,
+            )}
+          </strong>
           <small>{selectedAsset}/USD</small>
         </article>
         <article className={styles.metricCard}>
           <span>{isLiveAsset ? "Orders 24h" : "Signals 24h"}</span>
-          <strong>{isLiveAsset ? stats.orderCount : signalHistory.length}</strong>
+          <strong>
+            {isLiveAsset ? stats.orderCount : signalHistory.length}
+          </strong>
           <small>{isLiveAsset ? "open + close" : "collector candidates"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>{isLiveAsset ? "Open Positions" : "Open Positions"}</span>
           <strong>{isLiveAsset ? stats.openPositions : "N/A"}</strong>
-          <small>{isLiveAsset ? "all live positions" : "collector only"}</small>
+          <small>
+            {isLiveAsset
+              ? staleOpenPositions.length > 0
+                ? `${staleOpenPositions.length} stale DB row ignored`
+                : "confirmed DB positions"
+              : "collector only"}
+          </small>
         </article>
         <article className={styles.metricCard}>
           <span>PnL 24h</span>
-          <strong className={isLiveAsset ? (stats.totalPnl >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
+          <strong
+            className={
+              isLiveAsset
+                ? stats.totalPnl >= 0
+                  ? styles.goodText
+                  : styles.badText
+                : styles.mutedText
+            }
+          >
             {isLiveAsset ? stats.totalPnl.toFixed(4) : "N/A"}
           </strong>
           <small>{isLiveAsset ? "USD" : "collector only"}</small>
@@ -880,13 +1211,44 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={styles.panel}>
           <h2>Signals Summary · Running 24h</h2>
           <div className={styles.statRows}>
-            <div><span>{isLiveAsset ? "Orders 24h" : "Signal candidates"}</span><strong className={styles.goodText}>{isLiveAsset ? stats.orderEvents : signalHistory.length}</strong></div>
-            <div><span>{isLiveAsset ? "Rejected signals" : "Collector asset"}</span><strong className={isLiveAsset ? styles.warnText : undefined}>{isLiveAsset ? stats.rejected : selectedAsset}</strong></div>
-            <div><span>No signal</span><strong>{stats.noSignals}</strong></div>
-            <div><span>Total events</span><strong>{stats.totalEvents}</strong></div>
-            <div><span>Last signal</span><strong>{formatDateTime(lastSignalEvent?.created_at)}</strong></div>
-            <div><span>Win rate</span><strong>{stats.winRate.toFixed(1)}%</strong></div>
-            <div><span>Avg PnL</span><strong className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}>{stats.avgPnl.toFixed(4)}</strong></div>
+            <div>
+              <span>{isLiveAsset ? "Orders 24h" : "Signal candidates"}</span>
+              <strong className={styles.goodText}>
+                {isLiveAsset ? stats.orderEvents : signalHistory.length}
+              </strong>
+            </div>
+            <div>
+              <span>
+                {isLiveAsset ? "Rejected signals" : "Collector asset"}
+              </span>
+              <strong className={isLiveAsset ? styles.warnText : undefined}>
+                {isLiveAsset ? stats.rejected : selectedAsset}
+              </strong>
+            </div>
+            <div>
+              <span>No signal</span>
+              <strong>{stats.noSignals}</strong>
+            </div>
+            <div>
+              <span>Total events</span>
+              <strong>{stats.totalEvents}</strong>
+            </div>
+            <div>
+              <span>Last signal</span>
+              <strong>{formatDateTime(lastSignalEvent?.created_at)}</strong>
+            </div>
+            <div>
+              <span>Win rate</span>
+              <strong>{stats.winRate.toFixed(1)}%</strong>
+            </div>
+            <div>
+              <span>Avg PnL</span>
+              <strong
+                className={stats.avgPnl >= 0 ? styles.goodText : styles.badText}
+              >
+                {stats.avgPnl.toFixed(4)}
+              </strong>
+            </div>
           </div>
         </article>
 
@@ -895,25 +1257,46 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <div className={styles.rulesCompact}>
             <div>
               <span>Config</span>
-              <strong>{runtimeConfig?.config_name ?? activeConfigName ?? "—"}</strong>
+              <strong>
+                {runtimeConfig?.config_name ?? activeConfigName ?? "—"}
+              </strong>
             </div>
             <div>
               <span>Updated</span>
-              <strong className={runtimeConfigAge !== null && runtimeConfigAge > 180 ? styles.warnText : undefined}>
+              <strong
+                className={
+                  runtimeConfigAge !== null && runtimeConfigAge > 180
+                    ? styles.warnText
+                    : undefined
+                }
+              >
                 {runtimeConfigAge === null ? "—" : `${runtimeConfigAge}s ago`}
               </strong>
             </div>
             <div>
               <span>Mode</span>
-              <strong>{runtimeConfig?.dry_run === false ? "REAL" : runtimeConfig ? "DRY" : "—"} / {formatBool(runtimeConfig?.trading_enabled)}</strong>
+              <strong>
+                {runtimeConfig?.dry_run === false
+                  ? "REAL"
+                  : runtimeConfig
+                    ? "DRY"
+                    : "—"}{" "}
+                / {formatBool(runtimeConfig?.trading_enabled)}
+              </strong>
             </div>
             <div>
               <span>Size / leverage</span>
-              <strong>{formatNumber(runtimeConfig?.position_size_usd, 2)}$ / {formatNumber(runtimeConfig?.leverage, 1)}x</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.position_size_usd, 2)}$ /{" "}
+                {formatNumber(runtimeConfig?.leverage, 1)}x
+              </strong>
             </div>
             <div>
               <span>Entry p / z</span>
-              <strong>±{formatNumber(runtimeConfig?.entry_premium_threshold, 2)}% / ±{formatNumber(runtimeConfig?.entry_zscore_threshold, 2)}</strong>
+              <strong>
+                ±{formatNumber(runtimeConfig?.entry_premium_threshold, 2)}% / ±
+                {formatNumber(runtimeConfig?.entry_zscore_threshold, 2)}
+              </strong>
             </div>
             <div>
               <span>Z mode</span>
@@ -921,23 +1304,38 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             </div>
             <div>
               <span>TP / SL</span>
-              <strong>{formatNumber(runtimeConfig?.take_profit_pct, 2)}% / {formatNumber(runtimeConfig?.stop_loss_pct, 2)}%</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.take_profit_pct, 2)}% /{" "}
+                {formatNumber(runtimeConfig?.stop_loss_pct, 2)}%
+              </strong>
             </div>
             <div>
               <span>Hold / cooldown</span>
-              <strong>{formatNumber(runtimeConfig?.max_hold_minutes, 0)}m / {formatNumber(runtimeConfig?.cooldown_minutes, 0)}m</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.max_hold_minutes, 0)}m /{" "}
+                {formatNumber(runtimeConfig?.cooldown_minutes, 0)}m
+              </strong>
             </div>
             <div>
               <span>Open / day max</span>
-              <strong>{formatNumber(runtimeConfig?.max_open_trades, 0)} / {formatNumber(runtimeConfig?.max_daily_trades, 0)}</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.max_open_trades, 0)} /{" "}
+                {formatNumber(runtimeConfig?.max_daily_trades, 0)}
+              </strong>
             </div>
             <div>
               <span>Loss / streak limit</span>
-              <strong>{formatNumber(runtimeConfig?.max_daily_loss_usd, 2)}$ / {formatNumber(runtimeConfig?.max_consecutive_losses, 0)}</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.max_daily_loss_usd, 2)}$ /{" "}
+                {formatNumber(runtimeConfig?.max_consecutive_losses, 0)}
+              </strong>
             </div>
             <div>
               <span>Normal / burst loop</span>
-              <strong>{formatNumber(runtimeConfig?.interval_seconds, 0)}s / {formatNumber(runtimeConfig?.burst_interval_seconds, 0)}s</strong>
+              <strong>
+                {formatNumber(runtimeConfig?.interval_seconds, 0)}s /{" "}
+                {formatNumber(runtimeConfig?.burst_interval_seconds, 0)}s
+              </strong>
             </div>
           </div>
         </article>
@@ -946,31 +1344,75 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <h2>{isLiveAsset ? "Orders Summary" : "Market Summary"}</h2>
           {isLiveAsset ? (
             <div className={styles.rulesCompact}>
-              <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
-              <div><span>Orders total</span><strong>{stats.orderCountAll}</strong></div>
-              <div><span>Orders 24h</span><strong>{stats.orderCount}</strong></div>
-              <div><span>Closed total</span><strong>{stats.closedPositionsAll}</strong></div>
-              <div><span>Win rate total</span><strong>{stats.winRateAll.toFixed(1)}%</strong></div>
+              <div>
+                <span>Config</span>
+                <strong>{activeConfigName ?? "—"}</strong>
+              </div>
+              <div>
+                <span>Orders total</span>
+                <strong>{stats.orderCountAll}</strong>
+              </div>
+              <div>
+                <span>Orders 24h</span>
+                <strong>{stats.orderCount}</strong>
+              </div>
+              <div>
+                <span>Closed total</span>
+                <strong>{stats.closedPositionsAll}</strong>
+              </div>
+              <div>
+                <span>Win rate total</span>
+                <strong>{stats.winRateAll.toFixed(1)}%</strong>
+              </div>
               <div>
                 <span>P&L total</span>
-                <strong className={stats.totalPnlAll >= 0 ? styles.goodText : styles.badText}>
+                <strong
+                  className={
+                    stats.totalPnlAll >= 0 ? styles.goodText : styles.badText
+                  }
+                >
                   {stats.totalPnlAll.toFixed(4)}
                 </strong>
               </div>
               <div>
                 <span>P&L 24h</span>
-                <strong className={stats.totalPnl >= 0 ? styles.goodText : styles.badText}>
+                <strong
+                  className={
+                    stats.totalPnl >= 0 ? styles.goodText : styles.badText
+                  }
+                >
                   {stats.totalPnl.toFixed(4)}
                 </strong>
               </div>
             </div>
           ) : (
             <div className={styles.rulesCompact}>
-              <div><span>Asset</span><strong>{selectedAsset}</strong></div>
-              <div><span>Mode</span><strong>collector only</strong></div>
-              <div><span>Signal candidates</span><strong>{signalHistory.length}</strong></div>
-              <div><span>Latest premium</span><strong>{formatPct(data?.latestSnapshot?.premium_pct)}</strong></div>
-              <div><span>Current price</span><strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}$</strong></div>
+              <div>
+                <span>Asset</span>
+                <strong>{selectedAsset}</strong>
+              </div>
+              <div>
+                <span>Mode</span>
+                <strong>collector only</strong>
+              </div>
+              <div>
+                <span>Signal candidates</span>
+                <strong>{signalHistory.length}</strong>
+              </div>
+              <div>
+                <span>Latest premium</span>
+                <strong>{formatPct(data?.latestSnapshot?.premium_pct)}</strong>
+              </div>
+              <div>
+                <span>Current price</span>
+                <strong>
+                  {formatNumber(
+                    data?.latestSnapshot?.binance_adausdt,
+                    selectedAsset === "BTC" ? 2 : 6,
+                  )}
+                  $
+                </strong>
+              </div>
             </div>
           )}
         </article>
@@ -978,22 +1420,49 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.rulesPanel}`}>
           <h2>Burst Summary</h2>
           <div className={styles.rulesCompact}>
-            <div><span>Burst total</span><strong>{burstSummary.total}</strong></div>
-            <div><span>Burst 24h</span><strong>{burstSummary.last24h}</strong></div>
-            <div><span>Avg duration</span><strong>{burstSummary.avgDuration}</strong></div>
-            <div><span>Avg burst peak</span><strong>{burstSummary.avgPeak}</strong></div>
+            <div>
+              <span>Burst total</span>
+              <strong>{burstSummary.total}</strong>
+            </div>
+            <div>
+              <span>Burst 24h</span>
+              <strong>{burstSummary.last24h}</strong>
+            </div>
+            <div>
+              <span>Avg duration</span>
+              <strong>{burstSummary.avgDuration}</strong>
+            </div>
+            <div>
+              <span>Avg burst peak</span>
+              <strong>{burstSummary.avgPeak}</strong>
+            </div>
             <div>
               <span>Last burst peak</span>
-              <strong className={burstSummary.active ? styles.warnText : undefined}>
+              <strong
+                className={burstSummary.active ? styles.warnText : undefined}
+              >
                 {burstSummary.lastPeak}
               </strong>
             </div>
-            <div><span>Last burst start</span><strong>{burstSummary.lastStart}</strong></div>
-            <div><span>Last burst end</span><strong>{burstSummary.lastEnd}</strong></div>
-            <div><span>Last burst duration</span><strong>{burstSummary.lastDuration}</strong></div>
+            <div>
+              <span>Last burst start</span>
+              <strong>{burstSummary.lastStart}</strong>
+            </div>
+            <div>
+              <span>Last burst end</span>
+              <strong>{burstSummary.lastEnd}</strong>
+            </div>
+            <div>
+              <span>Last burst duration</span>
+              <strong>{burstSummary.lastDuration}</strong>
+            </div>
             <div>
               <span>Status</span>
-              <strong className={burstSummary.active ? styles.warnText : styles.mutedText}>
+              <strong
+                className={
+                  burstSummary.active ? styles.warnText : styles.mutedText
+                }
+              >
                 {burstSummary.active ? "active" : "closed"}
               </strong>
             </div>
@@ -1003,7 +1472,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={`${styles.panel} ${styles.chartPanel}`}>
           <h2>{selectedAsset} Premium Chart · Running 24h</h2>
           <div className={styles.stackedCharts}>
-            <PremiumSparkline events={currentEvents} premiumLimit={premiumChartLimit} />
+            <PremiumSparkline
+              events={currentEvents}
+              premiumLimit={premiumChartLimit}
+            />
             <ZScoreSparkline events={currentEvents} zLimit={zScoreChartLimit} />
           </div>
         </article>
@@ -1011,7 +1483,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <article className={styles.panelFull}>
           <div className={styles.panelTitleRow}>
             <h2>{isLiveAsset ? "Open Positions" : "Open Positions · N/A"}</h2>
-            <span>{isLiveAsset ? `${openPositions.length} total` : "collector only"}</span>
+            <span>
+              {isLiveAsset
+                ? `${openPositions.length} confirmed${staleOpenPositions.length > 0 ? ` · ${staleOpenPositions.length} stale ignored` : ""}`
+                : "collector only"}
+            </span>
           </div>
           <div className={styles.tableWrap}>
             <table>
@@ -1028,12 +1504,20 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {visibleOpenPositionsPage.length === 0 ? (
-                  <tr><td colSpan={7} className={styles.emptyCell}>No open positions</td></tr>
+                  <tr>
+                    <td colSpan={7} className={styles.emptyCell}>
+                      {staleOpenPositions.length > 0
+                        ? "No confirmed open positions; stale DB row ignored"
+                        : "No open positions"}
+                    </td>
+                  </tr>
                 ) : (
                   visibleOpenPositionsPage.map((position) => (
                     <tr key={position.id}>
                       <td>{position.id}</td>
-                      <td className={classForSide(position.side)}>{position.side}</td>
+                      <td className={classForSide(position.side)}>
+                        {position.side}
+                      </td>
                       <td>{formatNumber(position.entry_price, 6)}</td>
                       <td>{formatNumber(position.size_usd, 2)} USD</td>
                       <td>{formatNumber(position.leverage, 1)}x</td>
@@ -1045,7 +1529,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </tbody>
             </table>
           </div>
-          <Pager page={openPositionPage} totalItems={openPositions.length} onChange={setOpenPositionPage} />
+          <Pager
+            page={openPositionPage}
+            totalItems={openPositions.length}
+            onChange={setOpenPositionPage}
+          />
         </article>
 
         <div className={styles.bottomPanelsGrid}>
@@ -1067,17 +1555,31 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </thead>
                 <tbody>
                   {positions24h.length === 0 ? (
-                    <tr><td colSpan={8} className={styles.emptyCell}>No 24h positions yet</td></tr>
+                    <tr>
+                      <td colSpan={8} className={styles.emptyCell}>
+                        No 24h positions yet
+                      </td>
+                    </tr>
                   ) : (
                     positions24h.slice(0, 20).map((position) => (
                       <tr key={position.id}>
                         <td>{position.id}</td>
-                        <td>{position.status}</td>
-                        <td className={classForSide(position.side)}>{position.side}</td>
+                        <td>
+                          {isStaleOpenPosition(position, runtimeConfig)
+                            ? "STALE_OPEN"
+                            : position.status}
+                        </td>
+                        <td className={classForSide(position.side)}>
+                          {position.side}
+                        </td>
                         <td>{formatNumber(position.entry_price, 6)}</td>
                         <td>{formatNumber(position.exit_price, 6)}</td>
-                        <td className={classForPnl(position.pnl_usd)}>{formatNumber(position.pnl_usd, 4)}</td>
-                        <td className={classForPnl(position.pnl_pct)}>{formatPct(position.pnl_pct)}</td>
+                        <td className={classForPnl(position.pnl_usd)}>
+                          {formatNumber(position.pnl_usd, 4)}
+                        </td>
+                        <td className={classForPnl(position.pnl_pct)}>
+                          {formatPct(position.pnl_pct)}
+                        </td>
                         <td>{position.exit_reason ?? "—"}</td>
                       </tr>
                     ))
@@ -1104,13 +1606,19 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </thead>
                 <tbody>
                   {visibleOrders24h.length === 0 ? (
-                    <tr><td colSpan={7} className={styles.emptyCell}>No 24h orders yet</td></tr>
+                    <tr>
+                      <td colSpan={7} className={styles.emptyCell}>
+                        No 24h orders yet
+                      </td>
+                    </tr>
                   ) : (
                     visibleOrders24h.slice(0, 20).map((order) => (
                       <tr key={order.id}>
                         <td>{order.id}</td>
                         <td>{order.status}</td>
-                        <td className={classForSide(order.side)}>{order.side}</td>
+                        <td className={classForSide(order.side)}>
+                          {order.side}
+                        </td>
                         <td>{formatNumber(order.price, 6)}</td>
                         <td>{formatNumber(order.size_usd, 2)}</td>
                         <td>{formatNumber(order.leverage, 1)}x</td>
@@ -1146,31 +1654,54 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               </thead>
               <tbody>
                 {visibleSignalsPage.length === 0 ? (
-                  <tr><td colSpan={9} className={styles.emptyCell}>No captured signals yet</td></tr>
+                  <tr>
+                    <td colSpan={9} className={styles.emptyCell}>
+                      No captured signals yet
+                    </td>
+                  </tr>
                 ) : (
                   visibleSignalsPage.map((event) => (
                     <tr key={event.id}>
                       <td>{event.id}</td>
                       <td>{formatDateTime(event.created_at)}</td>
-                      <td><span className={`${styles.eventPill} ${styles[`event_${event.event_type}`] ?? ""}`}>{event.event_type}</span></td>
+                      <td>
+                        <span
+                          className={`${styles.eventPill} ${styles[`event_${event.event_type}`] ?? ""}`}
+                        >
+                          {event.event_type}
+                        </span>
+                      </td>
                       <td>{event.signal ?? "—"}</td>
-                      <td className={styles.messageCell}>{event.message ?? "—"}</td>
+                      <td className={styles.messageCell}>
+                        {event.message ?? "—"}
+                      </td>
                       <td>{formatPct(event.premium_pct)}</td>
                       <td>{formatNumber(event.premium_z, 3)}</td>
                       <td>{formatNumber(event.price, 6)}</td>
-                      <td>{event.dry_run ? "DRY" : event.trading_enabled ? "LIVE" : "SAFE"}</td>
+                      <td>
+                        {event.dry_run
+                          ? "DRY"
+                          : event.trading_enabled
+                            ? "LIVE"
+                            : "SAFE"}
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
-          <Pager page={signalPage} totalItems={signalHistory.length} onChange={setSignalPage} />
+          <Pager
+            page={signalPage}
+            totalItems={signalHistory.length}
+            onChange={setSignalPage}
+          />
         </article>
       </section>
 
       <footer className={styles.footer}>
-        Read-only dashboard. Live trading is controlled only by the Railway executor and Strike API settings.
+        Read-only dashboard. Live trading is controlled only by the Railway
+        executor and Strike API settings.
       </footer>
     </main>
   );
