@@ -171,8 +171,9 @@ const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
 const SUPPORTED_ASSETS = ["ADA", "BTC", "ZEC"] as const;
-const STRIKE_FEE_PER_FILL_RATE = 0.0008;
-const ROUND_TRIP_FILLS = 2;
+// Strike `pnl_usd` already comes from the executor/DB as the realized USD PnL.
+// Do not subtract estimated fees here again, otherwise profitable trades can
+// appear as USD losers while their percentage PnL remains positive.
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
 
 function normalizeAsset(value: string | null | undefined): DashboardAsset {
@@ -215,20 +216,8 @@ function toNumber(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function positionNotionalUsd(position: Position): number {
-  const sizeUsd = toNumber(position.size_usd) ?? 0;
-  const leverage = toNumber(position.leverage) ?? 1;
-  return sizeUsd * leverage;
-}
-
-function estimateRoundTripFeeUsd(position: Position): number {
-  return positionNotionalUsd(position) * STRIKE_FEE_PER_FILL_RATE * ROUND_TRIP_FILLS;
-}
-
-function feeAdjustedPositionPnlUsd(position: Position): number | null {
-  const rawPnl = toNumber(position.pnl_usd);
-  if (rawPnl === null) return null;
-  return rawPnl - estimateRoundTripFeeUsd(position);
+function positionPnlUsd(position: Position): number | null {
+  return toNumber(position.pnl_usd);
 }
 
 function formatNumber(
@@ -948,14 +937,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       (position) => position.status === "CLOSED",
     );
     const winners = closedPositions.filter(
-      (position) => (feeAdjustedPositionPnlUsd(position) ?? 0) > 0,
+      (position) => (positionPnlUsd(position) ?? 0) > 0,
     ).length;
     const losers = closedPositions.filter(
-      (position) => (feeAdjustedPositionPnlUsd(position) ?? 0) < 0,
+      (position) => (positionPnlUsd(position) ?? 0) < 0,
     ).length;
     const closed = winners + losers;
     const totalPnl = closedPositions.reduce(
-      (sum, position) => sum + (feeAdjustedPositionPnlUsd(position) ?? 0),
+      (sum, position) => sum + (positionPnlUsd(position) ?? 0),
       0,
     );
     const avgPnl =
@@ -967,10 +956,10 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       (position) => position.status === "CLOSED",
     );
     const allWinners = allClosedPositions.filter(
-      (position) => (feeAdjustedPositionPnlUsd(position) ?? 0) > 0,
+      (position) => (positionPnlUsd(position) ?? 0) > 0,
     ).length;
     const totalPnlAllFromPositions = allClosedPositions.reduce(
-      (sum, position) => sum + (feeAdjustedPositionPnlUsd(position) ?? 0),
+      (sum, position) => sum + (positionPnlUsd(position) ?? 0),
       0,
     );
 
@@ -1229,7 +1218,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           >
             {isLiveAsset ? stats.totalPnlAll.toFixed(4) : "N/A"}
           </strong>
-          <small>{isLiveAsset ? "USD · fee-adjusted" : "collector only"}</small>
+          <small>{isLiveAsset ? "USD · realized" : "collector only"}</small>
         </article>
       </section>
 
@@ -1391,12 +1380,12 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 <strong
                   className={
                     lastClosedPosition
-                      ? classForPnl(feeAdjustedPositionPnlUsd(lastClosedPosition))
+                      ? classForPnl(positionPnlUsd(lastClosedPosition))
                       : styles.mutedText
                   }
                 >
                   {lastClosedPosition
-                    ? `${formatDateTime(lastClosedPosition.updated_at || lastClosedPosition.created_at)} / ${formatNumber(feeAdjustedPositionPnlUsd(lastClosedPosition), 4)}$`
+                    ? `${formatDateTime(lastClosedPosition.updated_at || lastClosedPosition.created_at)} / ${formatNumber(positionPnlUsd(lastClosedPosition), 4)}$`
                     : "—"}
                 </strong>
               </div>
@@ -1614,8 +1603,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                         </td>
                         <td>{formatNumber(position.entry_price, 6)}</td>
                         <td>{formatNumber(position.exit_price, 6)}</td>
-                        <td className={classForPnl(feeAdjustedPositionPnlUsd(position))}>
-                          {formatNumber(feeAdjustedPositionPnlUsd(position), 4)}
+                        <td className={classForPnl(positionPnlUsd(position))}>
+                          {formatNumber(positionPnlUsd(position), 4)}
                         </td>
                         <td className={classForPnl(position.pnl_pct)}>
                           {formatPct(position.pnl_pct)}
