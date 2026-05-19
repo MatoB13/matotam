@@ -44,6 +44,13 @@
   text-transform: uppercase;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
 .title {
   margin: 0;
   font-size: clamp(32px, 5vw, 58px);
@@ -734,10 +741,12 @@
 
 .burstBanner {
   display: inline-flex;
-  margin-top: 12px;
+  margin-top: 0;
   padding: 8px 13px;
   border: 1px solid rgba(255, 212, 91, 0.75);
   border-radius: 999px;
+  flex: 0 0 auto;
+  white-space: nowrap;
   color: #ffd45b;
   background: rgba(255, 212, 91, 0.12);
   font-weight: 900;
@@ -1117,5 +1126,13 @@
 
   .tableWrap table {
     min-width: 680px;
+  }
+}
+
+@media (max-width: 760px) {
+  .titleRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
   }
 }
