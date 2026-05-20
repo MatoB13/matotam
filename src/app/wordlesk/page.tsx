@@ -5,6 +5,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 const URL_TOKEN = "tilka-samko";
 const MAX_ATTEMPTS = 10;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+const KEYBOARD_ROWS = [
+  "QWERTYUIOP".split(""),
+  "ASDFGHJKL".split(""),
+  "ZXCVBNM".split(""),
+];
 
 type TileState = "correct" | "present" | "absent" | "empty";
 
@@ -174,9 +179,7 @@ export default function WordleSkPage() {
     setShowSecret(false);
   }
 
-  function submitGuess(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  function submitCurrentGuess() {
     if (!gameStarted || isGameOver) {
       return;
     }
@@ -208,6 +211,30 @@ export default function WordleSkPage() {
     } else {
       setMessage(`Pokus ${nextGuesses.length}/${MAX_ATTEMPTS}. Pokračuj.`);
     }
+  }
+
+  function submitGuess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    submitCurrentGuess();
+  }
+
+  function addKeyboardLetter(letter: string) {
+    if (!gameStarted || isGameOver) {
+      return;
+    }
+
+    setCurrentGuess((value) => {
+      const nextValue = `${value}${letter}`;
+      return splitLetters(nextValue).slice(0, secretLength).join("");
+    });
+  }
+
+  function removeKeyboardLetter() {
+    if (!gameStarted || isGameOver) {
+      return;
+    }
+
+    setCurrentGuess((value) => splitLetters(value).slice(0, -1).join(""));
   }
 
   function resetGame() {
@@ -317,24 +344,53 @@ export default function WordleSkPage() {
 
 
             <div className="mb-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">Abeceda</p>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {ALPHABET.map((letter) => {
-                  const wasUsed = usedAlphabetLetters.has(letter);
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">Klávesnica</p>
+              <div className="flex flex-col gap-2">
+                {KEYBOARD_ROWS.map((row, rowIndex) => (
+                  <div className="flex justify-center gap-1.5 sm:gap-2" key={row.join("")}>
+                    {rowIndex === 2 ? (
+                      <button
+                        className="min-h-10 rounded-lg border border-zinc-700 bg-zinc-800 px-2 text-xs font-black text-zinc-100 transition hover:bg-zinc-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm"
+                        disabled={isGameOver}
+                        onClick={removeKeyboardLetter}
+                        type="button"
+                      >
+                        ⌫
+                      </button>
+                    ) : null}
 
-                  return (
-                    <span
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-black transition ${
-                        wasUsed
-                          ? "border-zinc-700 bg-zinc-800 text-zinc-500"
-                          : "border-cyan-300/30 bg-cyan-950/40 text-cyan-100"
-                      }`}
-                      key={letter}
-                    >
-                      {letter}
-                    </span>
-                  );
-                })}
+                    {row.map((letter) => {
+                      const wasUsed = usedAlphabetLetters.has(letter);
+
+                      return (
+                        <button
+                          className={`flex h-10 min-w-8 flex-1 items-center justify-center rounded-lg border text-sm font-black transition active:scale-95 sm:h-11 sm:min-w-10 sm:text-base ${
+                            wasUsed
+                              ? "border-zinc-700 bg-zinc-800 text-zinc-500"
+                              : "border-cyan-300/30 bg-cyan-950/40 text-cyan-100 hover:bg-cyan-900/70"
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                          disabled={isGameOver}
+                          key={letter}
+                          onClick={() => addKeyboardLetter(letter)}
+                          type="button"
+                        >
+                          {letter}
+                        </button>
+                      );
+                    })}
+
+                    {rowIndex === 2 ? (
+                      <button
+                        className="min-h-10 rounded-lg border border-cyan-300/40 bg-cyan-300 px-2 text-xs font-black text-zinc-950 transition hover:bg-cyan-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm"
+                        disabled={isGameOver}
+                        onClick={submitCurrentGuess}
+                        type="button"
+                      >
+                        ENTER
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </div>
 
