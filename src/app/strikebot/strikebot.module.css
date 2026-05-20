@@ -44,6 +44,14 @@
   text-transform: uppercase;
 }
 
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
 .title {
   margin: 0;
   font-size: clamp(32px, 5vw, 58px);
@@ -734,7 +742,7 @@
 
 .burstBanner {
   display: inline-flex;
-  margin-top: 12px;
+  margin-top: 0;
   padding: 8px 13px;
   border: 1px solid rgba(255, 212, 91, 0.75);
   border-radius: 999px;
@@ -770,7 +778,7 @@
 }
 
 .assetTabs {
-  display: flex;
+  display: none;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;

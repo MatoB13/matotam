@@ -170,7 +170,7 @@ type ApiResponse = {
 const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
-const SUPPORTED_ASSETS = ["ADA", "BTC", "ZEC"] as const;
+const SUPPORTED_ASSETS = ["ADA"] as const;
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
 
 function normalizeAsset(value: string | null | undefined): DashboardAsset {
@@ -836,25 +836,13 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
-          <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} DASHBOARD</span></h1>
-          {burstModeActive ? (
-            <div className={styles.burstBanner}>Burst mode activated!</div>
-          ) : null}
-          <p className={styles.subtitle}>{isLiveAsset ? "Read-only status dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
-          <div className={styles.assetTabs} role="tablist" aria-label="Strike bot asset tabs">
-            {SUPPORTED_ASSETS.map((asset) => (
-              <button
-                key={asset}
-                type="button"
-                role="tab"
-                aria-selected={selectedAsset === asset}
-                className={selectedAsset === asset ? `${styles.assetTab} ${styles.assetTabActive}` : styles.assetTab}
-                onClick={() => setSelectedAsset(asset)}
-              >
-                {asset}{asset === "ADA" ? " live" : " data"}
-              </button>
-            ))}
+          <div className={styles.titleRow}>
+            <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} DASHBOARD</span></h1>
+            {burstModeActive ? (
+              <div className={styles.burstBanner}>Burst mode activated!</div>
+            ) : null}
           </div>
+          <p className={styles.subtitle}>{isLiveAsset ? "Read-only status dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
         </div>
 
         <div className={styles.headerActions}>
@@ -909,7 +897,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
         <article className={styles.metricCard}>
           <span>Current Price</span>
-          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}</strong>
+          <strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, 6)}</strong>
           <small>{selectedAsset}/USD</small>
         </article>
         <article className={styles.metricCard}>
@@ -923,11 +911,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <small>{isLiveAsset ? "exchange-confirmed only" : "collector only"}</small>
         </article>
         <article className={styles.metricCard}>
-          <span>PnL 24h</span>
-          <strong className={isLiveAsset ? (stats.totalPnl >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
-            {isLiveAsset ? stats.totalPnl.toFixed(4) : "N/A"}
+          <span>PnL all time</span>
+          <strong className={isLiveAsset ? (stats.totalPnlAll >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
+            {isLiveAsset ? stats.totalPnlAll.toFixed(4) : "N/A"}
           </strong>
-          <small>{isLiveAsset ? "USD" : "collector only"}</small>
+          <small>{isLiveAsset ? "USD · realized" : "collector only"}</small>
         </article>
       </section>
 
@@ -1025,7 +1013,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               <div><span>Mode</span><strong>collector only</strong></div>
               <div><span>Signal candidates</span><strong>{signalHistory.length}</strong></div>
               <div><span>Latest premium</span><strong>{formatPct(data?.latestSnapshot?.premium_pct)}</strong></div>
-              <div><span>Current price</span><strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, selectedAsset === "BTC" ? 2 : 6)}$</strong></div>
+              <div><span>Current price</span><strong>{formatNumber(data?.latestSnapshot?.binance_adausdt, 6)}$</strong></div>
             </div>
           )}
         </article>
