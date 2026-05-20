@@ -108,27 +108,32 @@ export default function WordleSkPage() {
   );
   const isGameOver = isSolved || guesses.length >= MAX_ATTEMPTS;
 
-  const usedAlphabetLetters = useMemo(() => {
-    const used = new Set<string>();
+  const absentAlphabetLetters = useMemo(() => {
+    const absent = new Set<string>();
+    const confirmedInWord = new Set<string>();
 
     guesses.forEach((guess) => {
       guess.forEach((tile) => {
         const plainLetter = toPlainAlphabetLetter(tile.letter);
-        if (ALPHABET.includes(plainLetter)) {
-          used.add(plainLetter);
+
+        if (!ALPHABET.includes(plainLetter)) {
+          return;
+        }
+
+        if (tile.state === "correct" || tile.state === "present") {
+          confirmedInWord.add(plainLetter);
+          absent.delete(plainLetter);
+          return;
+        }
+
+        if (tile.state === "absent" && !confirmedInWord.has(plainLetter)) {
+          absent.add(plainLetter);
         }
       });
     });
 
-    splitLetters(currentGuess).forEach((letter) => {
-      const plainLetter = toPlainAlphabetLetter(letter);
-      if (ALPHABET.includes(plainLetter)) {
-        used.add(plainLetter);
-      }
-    });
-
-    return used;
-  }, [currentGuess, guesses]);
+    return absent;
+  }, [guesses]);
 
   const rows = useMemo(() => {
     const preparedRows: GuessResult[][] = [...guesses];
@@ -360,12 +365,12 @@ export default function WordleSkPage() {
                     ) : null}
 
                     {row.map((letter) => {
-                      const wasUsed = usedAlphabetLetters.has(letter);
+                      const isAbsent = absentAlphabetLetters.has(letter);
 
                       return (
                         <button
                           className={`flex h-10 min-w-8 flex-1 items-center justify-center rounded-lg border text-sm font-black transition active:scale-95 sm:h-11 sm:min-w-10 sm:text-base ${
-                            wasUsed
+                            isAbsent
                               ? "border-zinc-700 bg-zinc-800 text-zinc-500"
                               : "border-cyan-300/30 bg-cyan-950/40 text-cyan-100 hover:bg-cyan-900/70"
                           } disabled:cursor-not-allowed disabled:opacity-50`}
