@@ -383,7 +383,15 @@ export async function getStrikebotStatus(assetInput?: string | null) {
 
   const latestSnapshotQuery = pool.query<StrikebotSnapshot>(
     `
-    SELECT id, asset, ts, premium_pct, binance_adausdt, mark_price, index_price, funding_rate
+    SELECT
+      id,
+      asset,
+      ts,
+      premium_pct,
+      COALESCE(mark_price, index_price, binance_adausdt) AS binance_adausdt,
+      mark_price,
+      index_price,
+      funding_rate
     FROM market_snapshots
     WHERE asset = $1
     ORDER BY id DESC
