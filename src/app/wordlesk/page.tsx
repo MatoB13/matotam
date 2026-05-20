@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 const URL_TOKEN = "tilka-samko";
 const MAX_ATTEMPTS = 10;
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 type TileState = "correct" | "present" | "absent" | "empty";
 
@@ -18,6 +19,13 @@ function normalizeWord(value: string) {
 
 function splitLetters(value: string) {
   return Array.from(value);
+}
+
+function toPlainAlphabetLetter(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleUpperCase("sk-SK");
 }
 
 function scoreGuess(secret: string, guess: string): GuessResult[] {
@@ -94,6 +102,28 @@ export default function WordleSkPage() {
     guess.every((tile) => tile.state === "correct")
   );
   const isGameOver = isSolved || guesses.length >= MAX_ATTEMPTS;
+
+  const usedAlphabetLetters = useMemo(() => {
+    const used = new Set<string>();
+
+    guesses.forEach((guess) => {
+      guess.forEach((tile) => {
+        const plainLetter = toPlainAlphabetLetter(tile.letter);
+        if (ALPHABET.includes(plainLetter)) {
+          used.add(plainLetter);
+        }
+      });
+    });
+
+    splitLetters(currentGuess).forEach((letter) => {
+      const plainLetter = toPlainAlphabetLetter(letter);
+      if (ALPHABET.includes(plainLetter)) {
+        used.add(plainLetter);
+      }
+    });
+
+    return used;
+  }, [currentGuess, guesses]);
 
   const rows = useMemo(() => {
     const preparedRows: GuessResult[][] = [...guesses];
@@ -193,7 +223,6 @@ export default function WordleSkPage() {
     return (
       <main className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-50">
         <section className="mx-auto max-w-xl rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
-          <p className="mb-2 text-sm uppercase tracking-[0.35em] text-amber-300">Matotam</p>
           <h1 className="mb-4 text-3xl font-bold">Wordle SK</h1>
           <p className="text-zinc-300">
             Táto mini hra je dostupná cez súkromný token. Použi link s tokenom
@@ -208,7 +237,6 @@ export default function WordleSkPage() {
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#164e63,_#09090b_46%)] px-4 py-8 text-zinc-50">
       <section className="mx-auto flex max-w-3xl flex-col gap-6">
         <header className="rounded-3xl border border-cyan-300/20 bg-zinc-950/75 p-6 shadow-2xl backdrop-blur">
-          <p className="mb-2 text-sm uppercase tracking-[0.35em] text-cyan-200">Matotam</p>
           <h1 className="text-4xl font-black tracking-tight">Wordle SK</h1>
           <p className="mt-3 text-zinc-300">
             Jednoduchá verzia pre deti: rodič zadá tajné slovo, potom sa skryje a hráči majú
@@ -284,6 +312,30 @@ export default function WordleSkPage() {
                   ))}
                 </div>
               ))}
+            </div>
+
+
+
+            <div className="mb-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">Abeceda</p>
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {ALPHABET.map((letter) => {
+                  const wasUsed = usedAlphabetLetters.has(letter);
+
+                  return (
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-black transition ${
+                        wasUsed
+                          ? "border-zinc-700 bg-zinc-800 text-zinc-500"
+                          : "border-cyan-300/30 bg-cyan-950/40 text-cyan-100"
+                      }`}
+                      key={letter}
+                    >
+                      {letter}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
 
             <form onSubmit={submitGuess} className="flex flex-col gap-3 sm:flex-row">
