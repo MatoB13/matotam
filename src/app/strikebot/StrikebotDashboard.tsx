@@ -317,6 +317,36 @@ function classForPnl(value: string | number | null | undefined): string {
   return parsed >= 0 ? styles.goodText : styles.badText;
 }
 
+function estimateOpenPositionPnlPct(position: Position, currentPrice: string | number | null | undefined): number | null {
+  if (!isActivePositionStatus(position.status)) return toNumber(position.pnl_pct);
+
+  const existing = toNumber(position.pnl_pct);
+  if (existing !== null) return existing;
+
+  const entry = toNumber(position.entry_price);
+  const price = toNumber(currentPrice);
+  if (entry === null || price === null || entry === 0) return null;
+
+  const side = String(position.side ?? "").trim().toUpperCase();
+  if (side === "LONG") return ((price - entry) / entry) * 100;
+  if (side === "SHORT") return ((entry - price) / entry) * 100;
+  return null;
+}
+
+function estimateOpenPositionPnlUsd(position: Position, currentPrice: string | number | null | undefined): number | null {
+  if (!isActivePositionStatus(position.status)) return toNumber(position.pnl_usd);
+
+  const existing = toNumber(position.pnl_usd);
+  if (existing !== null) return existing;
+
+  const pnlPct = estimateOpenPositionPnlPct(position, currentPrice);
+  const size = toNumber(position.size_usd);
+  const leverage = toNumber(position.leverage) ?? 1;
+  if (pnlPct === null || size === null) return null;
+
+  return size * leverage * (pnlPct / 100);
+}
+
 function pageCount(items: unknown[]): number {
   return Math.max(1, Math.ceil(items.length / PAGE_SIZE));
 }
@@ -575,7 +605,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
-  const [openPositionPage, setOpenPositionPage] = useState(0);
   const [signalPage, setSignalPage] = useState(0);
 
   const loadData = useCallback(async () => {
@@ -611,7 +640,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     void loadData();
   }, [loadData]);
   useEffect(() => {
-    setOpenPositionPage(0);
     setSignalPage(0);
   }, [selectedAsset]);
 
@@ -711,10 +739,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const openPositions = useMemo(() => {
     return activeOrClosedPositions.filter((position) => isActivePositionStatus(position.status));
   }, [activeOrClosedPositions]);
-
-  useEffect(() => {
-    setOpenPositionPage((page) => Math.min(page, pageCount(openPositions) - 1));
-  }, [openPositions]);
 
   useEffect(() => {
     setSignalPage((page) => Math.min(page, pageCount(signalHistory) - 1));
@@ -826,7 +850,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const premiumChartLimit = toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.60;
   const zScoreChartLimit = toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.50;
   const runtimeConfigAge = runtimeConfig?.updated_at ? ageSeconds(runtimeConfig.updated_at) : null;
-  const visibleOpenPositionsPage = pageItems(openPositions, openPositionPage);
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
 
   return (
@@ -1051,49 +1074,12 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </div>
         </article>
 
-        <article className={styles.panelFull}>
-          <div className={styles.panelTitleRow}>
-            <h2>{isLiveAsset ? "Open Positions" : "Open Positions · N/A"}</h2>
-            <span>{isLiveAsset ? `${openPositions.length} active · ${hiddenStalePositions.length} stale hidden` : "collector only"}</span>
-          </div>
-          <div className={styles.tableWrap}>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Side</th>
-                  <th>Entry</th>
-                  <th>Size</th>
-                  <th>Lev</th>
-                  <th>Created CET</th>
-                  <th>Updated CET</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOpenPositionsPage.length === 0 ? (
-                  <tr><td colSpan={7} className={styles.emptyCell}>No open positions</td></tr>
-                ) : (
-                  visibleOpenPositionsPage.map((position) => (
-                    <tr key={position.id}>
-                      <td>{position.id}</td>
-                      <td className={classForSide(position.side)}>{position.side}</td>
-                      <td>{formatNumber(position.entry_price, 6)}</td>
-                      <td>{formatNumber(position.size_usd, 2)} USD</td>
-                      <td>{formatNumber(position.leverage, 1)}x</td>
-                      <td>{formatDateTime(position.created_at)}</td>
-                      <td>{formatDateTime(position.updated_at)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={openPositionPage} totalItems={openPositions.length} onChange={setOpenPositionPage} />
-        </article>
-
         <div className={styles.bottomPanelsGrid}>
           <article className={`${styles.panelFull} ${styles.bottomPanelItem}`}>
-            <h2>Positions · active/closed 24h</h2>
+            <div className={styles.panelTitleRow}>
+              <h2>Positions · active/closed 24h</h2>
+              <span>{openPositions.length} active · {hiddenStalePositions.length} stale hidden</span>
+            </div>
             <div className={styles.tableWrap}>
               <table>
                 <thead>
@@ -1103,6 +1089,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                     <th>Side</th>
                     <th>Entry</th>
                     <th>Exit</th>
+                    <th>Current Price</th>
+                    <th>Created CET</th>
+                    <th>Updated CET</th>
                     <th>PnL USD</th>
                     <th>PnL %</th>
                     <th>Reason</th>
@@ -1110,20 +1099,31 @@ export default function StrikebotDashboard({ token }: { token: string }) {
                 </thead>
                 <tbody>
                   {positions24h.length === 0 ? (
-                    <tr><td colSpan={8} className={styles.emptyCell}>No 24h positions yet</td></tr>
+                    <tr><td colSpan={11} className={styles.emptyCell}>No 24h positions yet</td></tr>
                   ) : (
-                    positions24h.slice(0, 20).map((position) => (
-                      <tr key={position.id}>
-                        <td>{position.id}</td>
-                        <td className={statusClass(position.status)}>{position.status}</td>
-                        <td className={classForSide(position.side)}>{position.side}</td>
-                        <td>{formatNumber(position.entry_price, 6)}</td>
-                        <td>{formatNumber(position.exit_price, 6)}</td>
-                        <td className={classForPnl(position.pnl_usd)}>{formatNumber(position.pnl_usd, 4)}</td>
-                        <td className={classForPnl(position.pnl_pct)}>{formatPct(position.pnl_pct)}</td>
-                        <td>{position.exit_reason ?? "—"}</td>
-                      </tr>
-                    ))
+                    positions24h.slice(0, 20).map((position) => {
+                      const displayedPnlUsd = estimateOpenPositionPnlUsd(position, data?.latestSnapshot?.binance_adausdt);
+                      const displayedPnlPct = estimateOpenPositionPnlPct(position, data?.latestSnapshot?.binance_adausdt);
+                      const displayedCurrentPrice = isActivePositionStatus(position.status)
+                        ? data?.latestSnapshot?.binance_adausdt
+                        : position.exit_price;
+
+                      return (
+                        <tr key={position.id}>
+                          <td>{position.id}</td>
+                          <td className={statusClass(position.status)}>{position.status}</td>
+                          <td className={classForSide(position.side)}>{position.side}</td>
+                          <td>{formatNumber(position.entry_price, 6)}</td>
+                          <td>{formatNumber(position.exit_price, 6)}</td>
+                          <td>{formatNumber(displayedCurrentPrice, 6)}</td>
+                          <td>{formatDateTime(position.created_at)}</td>
+                          <td>{formatDateTime(position.updated_at)}</td>
+                          <td className={classForPnl(displayedPnlUsd)}>{formatNumber(displayedPnlUsd, 4)}</td>
+                          <td className={classForPnl(displayedPnlPct)}>{formatPct(displayedPnlPct)}</td>
+                          <td>{position.exit_reason ?? "—"}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
