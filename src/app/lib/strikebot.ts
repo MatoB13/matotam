@@ -566,8 +566,21 @@ export async function getStrikebotStatus(assetInput?: string | null) {
       `
       WITH order_agg AS (
         SELECT
-          COUNT(*)::text AS orders_total,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::text AS orders_24h
+          COUNT(*) FILTER (
+            WHERE status NOT LIKE 'STALE_%'
+              AND status NOT ILIKE '%FAILED%'
+              AND status NOT ILIKE '%REJECTED%'
+              AND status NOT ILIKE '%CANCEL%'
+              AND NOT (status = 'LIVE_UNCONFIRMED' AND created_at < NOW() - INTERVAL '10 minutes')
+          )::text AS orders_total,
+          COUNT(*) FILTER (
+            WHERE created_at >= NOW() - INTERVAL '24 hours'
+              AND status NOT LIKE 'STALE_%'
+              AND status NOT ILIKE '%FAILED%'
+              AND status NOT ILIKE '%REJECTED%'
+              AND status NOT ILIKE '%CANCEL%'
+              AND NOT (status = 'LIVE_UNCONFIRMED' AND created_at < NOW() - INTERVAL '10 minutes')
+          )::text AS orders_24h
         FROM live_orders
         WHERE asset = $2
           AND ($1::text IS NULL OR config_name = $1::text)
