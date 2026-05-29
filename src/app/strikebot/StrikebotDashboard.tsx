@@ -174,6 +174,7 @@ const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
 const SUPPORTED_ASSETS = ["ADA"] as const;
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
+type DashboardTab = "status" | "charts" | "positions" | "orders" | "events";
 
 function normalizeAsset(value: string | null | undefined): DashboardAsset {
   const normalized = String(value || "ADA").trim().toUpperCase();
@@ -803,6 +804,23 @@ function MomentumFilterSparkline({
   );
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = `${base64String}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+
+  return outputArray;
+}
+
+function isPushSupported(): boolean {
+  return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
 
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
@@ -813,6 +831,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
   const [signalPage, setSignalPage] = useState(0);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("status");
+  const [pushStatus, setPushStatus] = useState<string>("");
+  const [pushEnabled, setPushEnabled] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!token) {
@@ -866,6 +887,76 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     }, 1000);
     return () => window.clearInterval(id);
   }, [autoRefresh]);
+
+  const enablePushNotifications = useCallback(async () => {
+    if (!token) {
+      setPushStatus("Missing dashboard token.");
+      return;
+    }
+
+    if (!isPushSupported()) {
+      setPushStatus("Push notifications are not supported in this browser.");
+      return;
+    }
+
+    try {
+      setPushStatus("Enabling…");
+
+      const permission = await window.Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushStatus("Notifications blocked by Android/Chrome.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/strikebot-sw.js");
+      const keyResponse = await fetch(`/api/strikebot/push/public-key?token=${encodeURIComponent(token)}`, {
+        cache: "no-store",
+      });
+      const keyPayload = (await keyResponse.json()) as { ok: boolean; publicKey?: string; error?: string };
+
+      if (!keyResponse.ok || !keyPayload.ok || !keyPayload.publicKey) {
+        throw new Error(keyPayload.error || "Missing push public key");
+      }
+
+      const existingSubscription = await registration.pushManager.getSubscription();
+      const subscription = existingSubscription ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyPayload.publicKey),
+      });
+
+      const subscribeResponse = await fetch(`/api/strikebot/push/subscribe?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscription,
+          deviceLabel: "Martin Android phone",
+        }),
+      });
+      const subscribePayload = (await subscribeResponse.json()) as { ok: boolean; error?: string };
+
+      if (!subscribeResponse.ok || !subscribePayload.ok) {
+        throw new Error(subscribePayload.error || "Subscription failed");
+      }
+
+      setPushEnabled(true);
+      setPushStatus("Notifications enabled on this phone.");
+    } catch (err) {
+      setPushEnabled(false);
+      setPushStatus(err instanceof Error ? err.message : "Could not enable notifications.");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!isPushSupported()) return;
+
+    navigator.serviceWorker.getRegistration("/strikebot-sw.js")
+      .then(async (registration) => {
+        if (!registration) return;
+        const subscription = await registration.pushManager.getSubscription();
+        setPushEnabled(Boolean(subscription));
+      })
+      .catch(() => undefined);
+  }, []);
 
   const isLiveAsset = selectedAsset === "ADA";
 
@@ -1078,6 +1169,13 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </div>
 
         <div className={styles.headerActions}>
+          <button
+            className={pushEnabled ? styles.pushButtonEnabled : styles.pushButton}
+            onClick={() => void enablePushNotifications()}
+            type="button"
+          >
+            {pushEnabled ? "Notifications on" : "Enable notifications"}
+          </button>
           <button className={styles.refreshButton} onClick={() => void loadData()} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
           </button>
@@ -1091,6 +1189,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </label>
           <p className={styles.updatedText}>
             Updated CET: {lastRefresh ? formatDateTime(lastRefresh.toISOString()) : "—"}
+            {pushStatus ? <span className={styles.pushStatus}> · {pushStatus}</span> : null}
           </p>
         </div>
       </header>
@@ -1151,8 +1250,27 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
       </section>
 
-      <section className={styles.dashboardGrid}>
-        <article className={styles.panel}>
+      <nav className={styles.mobileTabs} aria-label="Strikebot dashboard sections">
+        {[
+          ["status", "Status"],
+          ["charts", "Charts"],
+          ["positions", "Positions"],
+          ["orders", "Orders"],
+          ["events", "Events"],
+        ].map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            className={activeTab === tab ? styles.mobileTabActive : styles.mobileTab}
+            onClick={() => setActiveTab(tab as DashboardTab)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <section className={`${styles.dashboardGrid} ${styles[`tab_${activeTab}`]}`}>
+        <article className={`${styles.panel} ${styles.summaryPanel}`}>
           <h2>Signals Summary · Running 24h</h2>
           <div className={styles.statRows}>
             <div><span>{isLiveAsset ? "Order events" : "Signal candidates"}</span><strong className={styles.goodText}>{isLiveAsset ? stats.orderEvents : signalHistory.length}</strong></div>
@@ -1165,7 +1283,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </div>
         </article>
 
-        <article className={`${styles.panel} ${styles.rulesPanel}`}>
+        <article className={`${styles.panel} ${styles.rulesPanel} ${styles.settingsPanel}`}>
           <h2>{isLiveAsset ? "Bot Settings" : "Collector Signal View"}</h2>
           <div className={styles.rulesCompact}>
             <div>
@@ -1225,7 +1343,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </div>
         </article>
 
-        <article className={`${styles.panel} ${styles.rulesPanel}`}>
+        <article className={`${styles.panel} ${styles.rulesPanel} ${styles.ordersSummaryPanel}`}>
           <h2>{isLiveAsset ? "Orders Summary" : "Market Summary"}</h2>
           {isLiveAsset ? (
             <div className={styles.rulesCompact}>
@@ -1258,7 +1376,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           )}
         </article>
 
-        <article className={`${styles.panel} ${styles.rulesPanel}`}>
+        <article className={`${styles.panel} ${styles.rulesPanel} ${styles.burstPanel}`}>
           <h2>Burst Summary</h2>
           <div className={styles.rulesCompact}>
             <div><span>Burst total</span><strong>{burstSummary.total}</strong></div>
@@ -1283,7 +1401,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </div>
         </article>
 
-        <article className={`${styles.panel} ${styles.chartPanel}`}>
+        <article className={`${styles.panel} ${styles.chartPanel} ${styles.chartsPanel}`}>
           <h2>{selectedAsset} Premium Chart · Running 24h</h2>
           <div className={styles.stackedCharts}>
             <PremiumSparkline events={currentEvents} premiumLimit={premiumChartLimit} />
@@ -1297,7 +1415,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <div className={styles.bottomPanelsGrid}>
-          <article className={`${styles.panelFull} ${styles.bottomPanelItem}`}>
+          <article className={`${styles.panelFull} ${styles.bottomPanelItem} ${styles.positionsPanel}`}>
             <div className={styles.panelTitleRow}>
               <h2>Positions · active/closed 24h</h2>
               <span>{openPositions.length} active · {hiddenStalePositions.length} stale hidden</span>
@@ -1352,7 +1470,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             </div>
           </article>
 
-          <article className={`${styles.panelFull} ${styles.bottomPanelItem}`}>
+          <article className={`${styles.panelFull} ${styles.bottomPanelItem} ${styles.ordersPanel}`}>
             <h2>{isLiveAsset ? `Orders · Running 24h (${hiddenStaleOrders.length} stale hidden)` : "Orders · N/A"}</h2>
             <div className={styles.tableWrap}>
               <table>
@@ -1389,7 +1507,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           </article>
         </div>
 
-        <article className={styles.panelFull}>
+        <article className={`${styles.panelFull} ${styles.eventsPanel}`}>
           <div className={styles.panelTitleRow}>
             <h2>All Captured Signals</h2>
             <span>{signalHistory.length} total · 20 per page</span>

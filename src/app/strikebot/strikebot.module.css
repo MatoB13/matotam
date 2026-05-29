@@ -1141,3 +1141,138 @@
 .momentumChartBox {
   min-height: 300px;
 }
+
+.pushButton,
+.pushButtonEnabled {
+  border: 1px solid rgba(91, 160, 255, 0.5);
+  border-radius: 14px;
+  background: rgba(91, 160, 255, 0.13);
+  color: #e6f0ff;
+  padding: 10px 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.pushButtonEnabled {
+  border-color: rgba(69, 239, 108, 0.62);
+  background: rgba(69, 239, 108, 0.16);
+  color: #dfffe8;
+}
+
+.pushStatus {
+  color: #c9d5e6;
+}
+
+.mobileTabs {
+  display: none;
+}
+
+.mobileTab,
+.mobileTabActive {
+  border: 1px solid rgba(168, 181, 197, 0.22);
+  border-radius: 999px;
+  background: rgba(12, 24, 34, 0.86);
+  color: #c8d8ea;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.mobileTabActive {
+  border-color: rgba(69, 239, 108, 0.66);
+  background: rgba(69, 239, 108, 0.16);
+  color: #eaffef;
+}
+
+@media (max-width: 900px) {
+  .pageShell {
+    min-height: 100dvh;
+    padding: 14px 12px 86px;
+  }
+
+  .header {
+    gap: 14px;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .headerActions button,
+  .headerActions label {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .updatedText {
+    text-align: left;
+  }
+
+  .mobileTabs {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin: 0 -12px 12px;
+    padding: 10px 12px;
+    background: rgba(7, 16, 24, 0.92);
+    backdrop-filter: blur(16px);
+  }
+
+  .dashboardGrid {
+    display: block;
+  }
+
+  .summaryPanel,
+  .settingsPanel,
+  .ordersSummaryPanel,
+  .burstPanel,
+  .chartsPanel,
+  .positionsPanel,
+  .ordersPanel,
+  .eventsPanel {
+    display: none;
+  }
+
+  .tab_status .summaryPanel,
+  .tab_status .settingsPanel,
+  .tab_status .ordersSummaryPanel,
+  .tab_status .burstPanel,
+  .tab_charts .chartsPanel,
+  .tab_positions .positionsPanel,
+  .tab_orders .ordersPanel,
+  .tab_events .eventsPanel {
+    display: block;
+  }
+
+  .bottomPanelsGrid {
+    display: block;
+  }
+
+  .panel,
+  .panelFull,
+  .chartPanel,
+  .bottomPanelItem {
+    margin-bottom: 12px;
+  }
+
+  .chartBox {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sparkline {
+    width: max(100%, 760px);
+    min-width: 760px;
+    height: 320px;
+  }
+
+  .tableWrap {
+    border-radius: 14px;
+  }
+}
