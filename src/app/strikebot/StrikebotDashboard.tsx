@@ -921,7 +921,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       const existingSubscription = await registration.pushManager.getSubscription();
       const subscription = existingSubscription ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(keyPayload.publicKey),
+        applicationServerKey: urlBase64ToUint8Array(keyPayload.publicKey) as unknown as BufferSource,
       });
 
       const subscribeResponse = await fetch(`/api/strikebot/push/subscribe?token=${encodeURIComponent(token)}`, {
