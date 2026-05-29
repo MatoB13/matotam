@@ -134,8 +134,8 @@ export type StrikebotRuntimeConfig = {
   entry_premium_threshold: string | number | null;
   entry_zscore_threshold: string | number | null;
   entry_zscore_mode: string | null;
-  entry_premium_5m_delta_threshold: string | number | null;
-  entry_ada15_adverse_max_pct: string | number | null;
+  entry_premium_5m_delta_threshold?: string | number | null;
+  entry_ada15_adverse_max_pct?: string | number | null;
   take_profit_pct: string | number | null;
   stop_loss_pct: string | number | null;
   max_hold_minutes: string | number | null;
@@ -185,6 +185,35 @@ function toFiniteNumber(value: string | number | null | undefined): number | nul
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getConfigNumber(configJson: unknown, key: string): string | number | null {
+  if (!configJson || typeof configJson !== "object" || Array.isArray(configJson)) return null;
+
+  const value = (configJson as Record<string, unknown>)[key];
+
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") return value;
+
+  return null;
+}
+
+function withDerivedRuntimeConfig(
+  row: StrikebotRuntimeConfig | null | undefined,
+): StrikebotRuntimeConfig | null {
+  if (!row) return null;
+
+  return {
+    ...row,
+    entry_premium_5m_delta_threshold:
+      row.entry_premium_5m_delta_threshold ??
+      getConfigNumber(row.config_json, "entry_premium_5m_delta_threshold") ??
+      getConfigNumber(row.config_json, "ENTRY_PREMIUM_5M_DELTA_THRESHOLD"),
+    entry_ada15_adverse_max_pct:
+      row.entry_ada15_adverse_max_pct ??
+      getConfigNumber(row.config_json, "entry_ada15_adverse_max_pct") ??
+      getConfigNumber(row.config_json, "ENTRY_ADA15_ADVERSE_MAX_PCT"),
+  };
 }
 
 function emptyOrderSummary(configName: string | null): StrikebotOrderSummary {
@@ -646,8 +675,6 @@ export async function getStrikebotStatus(assetInput?: string | null) {
           entry_premium_threshold,
           entry_zscore_threshold,
           entry_zscore_mode,
-          entry_premium_5m_delta_threshold,
-          entry_ada15_adverse_max_pct,
           take_profit_pct,
           stop_loss_pct,
           max_hold_minutes,
@@ -681,6 +708,8 @@ export async function getStrikebotStatus(assetInput?: string | null) {
         }
       : null;
 
+  const runtimeConfigRow = withDerivedRuntimeConfig(runtimeConfig.rows[0] ?? null);
+
   return {
     asset,
     availableAssets: SUPPORTED_ASSETS,
@@ -693,8 +722,8 @@ export async function getStrikebotStatus(assetInput?: string | null) {
     recentPositions: recentPositions.rows,
     orderCount: Number(orderCount.rows[0]?.count ?? 0),
     positionStats: positionStats.rows[0] ?? null,
-    currentConfigName: runtimeConfig.rows[0]?.config_name ?? currentConfigName,
-    runtimeConfig: runtimeConfig.rows[0] ?? null,
+    currentConfigName: runtimeConfigRow?.config_name ?? currentConfigName,
+    runtimeConfig: runtimeConfigRow,
     orderSummary: orderSummary.rows[0] ?? emptyOrderSummary(currentConfigName),
     collectorState,
     burstSummary: computeBurstSummaryFromSnapshots(burstSnapshots.rows),
