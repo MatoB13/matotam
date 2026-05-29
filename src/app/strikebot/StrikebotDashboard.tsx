@@ -108,6 +108,8 @@ type RuntimeConfig = {
   entry_premium_threshold: string | number | null;
   entry_zscore_threshold: string | number | null;
   entry_zscore_mode: string | null;
+  entry_premium_5m_delta_threshold?: string | number | null;
+  entry_ada15_adverse_max_pct?: string | number | null;
   take_profit_pct: string | number | null;
   stop_loss_pct: string | number | null;
   max_hold_minutes: string | number | null;
@@ -597,6 +599,211 @@ function ZScoreSparkline({ events, zLimit }: { events: RuntimeEvent[]; zLimit: n
   );
 }
 
+type MomentumPoint = {
+  premiumDelta5m: number;
+  ada15Adverse: number | null;
+  ada15Ret: number | null;
+  premium: number;
+  time: string;
+};
+
+function findPastPoint<T extends { timeMs: number }>(points: T[], currentIndex: number, lookbackMs: number): T | null {
+  const target = points[currentIndex].timeMs - lookbackMs;
+  let candidate: T | null = null;
+
+  for (let i = currentIndex - 1; i >= 0; i -= 1) {
+    if (points[i].timeMs <= target) {
+      candidate = points[i];
+      break;
+    }
+  }
+
+  return candidate;
+}
+
+function buildMomentumPoints(events: RuntimeEvent[]): MomentumPoint[] {
+  const basePoints = events
+    .slice(0, 288)
+    .reverse()
+    .map((event) => ({
+      premium: toNumber(event.premium_pct),
+      price: toNumber(event.price),
+      time: event.created_at,
+      timeMs: new Date(event.created_at).getTime(),
+    }))
+    .filter((point): point is { premium: number; price: number; time: string; timeMs: number } => {
+      return point.premium !== null && point.price !== null && Number.isFinite(point.timeMs) && point.price > 0;
+    });
+
+  const output: MomentumPoint[] = [];
+
+  for (let i = 0; i < basePoints.length; i += 1) {
+    const point = basePoints[i];
+    const premiumPast = findPastPoint(basePoints, i, 5 * 60 * 1000);
+    if (!premiumPast) continue;
+
+    const pricePast = findPastPoint(basePoints, i, 15 * 60 * 1000);
+    const premiumDelta5m = point.premium - premiumPast.premium;
+    const ada15Ret = pricePast ? ((point.price / pricePast.price) - 1) * 100 : null;
+    const ada15Adverse = ada15Ret === null
+      ? null
+      : point.premium >= 0
+        ? -ada15Ret
+        : ada15Ret;
+
+    output.push({
+      premiumDelta5m,
+      ada15Adverse,
+      ada15Ret,
+      premium: point.premium,
+      time: point.time,
+    });
+  }
+
+  return output;
+}
+
+function MomentumFilterSparkline({
+  events,
+  premiumDeltaLimit,
+  ada15AdverseLimit,
+}: {
+  events: RuntimeEvent[];
+  premiumDeltaLimit: number;
+  ada15AdverseLimit: number;
+}) {
+  const width = 900;
+  const height = 230;
+  const padding = 18;
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  const points = buildMomentumPoints(events);
+
+  if (points.length < 2) {
+    return <div className={styles.emptyChart}>Not enough momentum-filter data yet</div>;
+  }
+
+  const values = points.flatMap((point) => [
+    point.premiumDelta5m,
+    ...(point.ada15Adverse === null ? [] : [point.ada15Adverse]),
+  ]);
+  const min = Math.min(...values, -premiumDeltaLimit, 0);
+  const max = Math.max(...values, premiumDeltaLimit, ada15AdverseLimit, 0);
+  const range = max - min || 1;
+
+  const toX = (index: number) => padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
+  const toY = (value: number) => padding + ((max - value) / range) * (height - padding * 2);
+
+  const coords = points.map((point, index) => ({
+    x: toX(index),
+    deltaY: toY(point.premiumDelta5m),
+    adverseY: point.ada15Adverse === null ? null : toY(point.ada15Adverse),
+    ...point,
+  }));
+
+  const zeroY = toY(0);
+  const deltaUpperY = toY(premiumDeltaLimit);
+  const deltaLowerY = toY(-premiumDeltaLimit);
+  const adverseLimitY = toY(ada15AdverseLimit);
+  const latest = points[points.length - 1];
+  const hoverPoint = hoverIndex === null ? null : coords[hoverIndex] || null;
+  const adversePolyline = coords
+    .filter((coord) => coord.adverseY !== null)
+    .map((coord) => `${coord.x.toFixed(1)},${Number(coord.adverseY).toFixed(1)}`)
+    .join(" ");
+
+  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeX = ((event.clientX - rect.left) / rect.width) * width;
+    const chartWidth = width - padding * 2;
+    const ratio = Math.min(1, Math.max(0, (relativeX - padding) / chartWidth));
+    const nextIndex = Math.round(ratio * (coords.length - 1));
+    setHoverIndex(nextIndex);
+  }
+
+  return (
+    <div className={`${styles.chartBox} ${styles.momentumChartBox}`}>
+      <div className={styles.chartHeaderRow}>
+        <span>Momentum filters · premium 5m Δ + ADA15 adverse · running 24h</span>
+        <strong>
+          Δ {latest.premiumDelta5m.toFixed(4)}% · adverse {latest.ada15Adverse === null ? "—" : `${latest.ada15Adverse.toFixed(4)}%`}
+        </strong>
+      </div>
+      <svg
+        className={styles.sparkline}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="24 hour momentum filter sparkline"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
+        <defs>
+          <linearGradient id="momentumDeltaLine" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#45ef6c" />
+            <stop offset="100%" stopColor="#5ba0ff" />
+          </linearGradient>
+          <linearGradient id="momentumAdverseLine" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#ffb84d" />
+            <stop offset="100%" stopColor="#ff5b5b" />
+          </linearGradient>
+        </defs>
+        <line x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} className={styles.zeroLine} />
+        <line x1={padding} x2={width - padding} y1={deltaUpperY} y2={deltaUpperY} className={styles.limitLine} />
+        <line x1={padding} x2={width - padding} y1={deltaLowerY} y2={deltaLowerY} className={styles.limitLine} />
+        <line x1={padding} x2={width - padding} y1={adverseLimitY} y2={adverseLimitY} className={styles.warnLimitLine} />
+        <text x={width - padding - 4} y={deltaUpperY - 6} textAnchor="end" className={styles.limitLabel}>Δ +{premiumDeltaLimit.toFixed(2)}%</text>
+        <text x={width - padding - 4} y={deltaLowerY + 14} textAnchor="end" className={styles.limitLabel}>Δ -{premiumDeltaLimit.toFixed(2)}%</text>
+        <text x={padding + 4} y={adverseLimitY - 6} className={styles.limitLabel}>adverse max {ada15AdverseLimit.toFixed(2)}%</text>
+        <polyline
+          points={coords.map((coord) => `${coord.x.toFixed(1)},${coord.deltaY.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#momentumDeltaLine)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {adversePolyline ? (
+          <polyline
+            points={adversePolyline}
+            fill="none"
+            stroke="url(#momentumAdverseLine)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+        {coords.map((coord, index) => (
+          <circle
+            key={`${coord.x}-${coord.deltaY}-${index}`}
+            cx={coord.x}
+            cy={coord.deltaY}
+            r={index === coords.length - 1 ? 5 : 2.2}
+            className={styles.sparkDot}
+          />
+        ))}
+        {hoverPoint ? (
+          <g className={styles.tooltipLayer}>
+            <line x1={hoverPoint.x} x2={hoverPoint.x} y1={padding} y2={height - padding} className={styles.hoverLine} />
+            <circle cx={hoverPoint.x} cy={hoverPoint.deltaY} r="6" className={styles.hoverDot} />
+            <g transform={`translate(${Math.min(width - 235, Math.max(padding, hoverPoint.x + 12))},${Math.max(padding, hoverPoint.deltaY - 62)})`}>
+              <rect width="220" height="76" rx="10" className={styles.tooltipBox} />
+              <text x="10" y="20" className={styles.tooltipTextStrong}>premium 5m Δ {hoverPoint.premiumDelta5m.toFixed(4)}%</text>
+              <text x="10" y="39" className={styles.tooltipText}>ADA15 adverse {hoverPoint.ada15Adverse === null ? "—" : `${hoverPoint.ada15Adverse.toFixed(4)}%`}</text>
+              <text x="10" y="58" className={styles.tooltipText}>{formatTimeOnly(hoverPoint.time)}</text>
+            </g>
+          </g>
+        ) : null}
+        <rect x={padding} y={padding} width={width - padding * 2} height={height - padding * 2} className={styles.hoverCapture} />
+      </svg>
+      <div className={styles.chartFooterRow}>
+        <span>premium 5m Δ threshold ±{premiumDeltaLimit.toFixed(2)}%</span>
+        <span>ADA15 adverse max {ada15AdverseLimit.toFixed(2)}%</span>
+      </div>
+    </div>
+  );
+}
+
+
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
   const [data, setData] = useState<StrikebotData | null>(null);
@@ -849,6 +1056,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   const runtimeConfig = data?.runtimeConfig ?? null;
   const premiumChartLimit = toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.60;
   const zScoreChartLimit = toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.50;
+  const premiumDelta5mLimit = toNumber(runtimeConfig?.entry_premium_5m_delta_threshold) ?? 0.30;
+  const ada15AdverseLimit = toNumber(runtimeConfig?.entry_ada15_adverse_max_pct) ?? 0.25;
   const runtimeConfigAge = runtimeConfig?.updated_at ? ageSeconds(runtimeConfig.updated_at) : null;
   const visibleSignalsPage = pageItems(signalHistory, signalPage);
 
@@ -982,6 +1191,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
               <strong>±{formatNumber(runtimeConfig?.entry_premium_threshold, 2)}% / ±{formatNumber(runtimeConfig?.entry_zscore_threshold, 2)}</strong>
             </div>
             <div>
+              <span>Premium 5m Δ</span>
+              <strong>±{formatNumber(runtimeConfig?.entry_premium_5m_delta_threshold, 2)}%</strong>
+            </div>
+            <div>
+              <span>ADA15 adverse max</span>
+              <strong>{formatNumber(runtimeConfig?.entry_ada15_adverse_max_pct, 2)}%</strong>
+            </div>
+            <div>
               <span>Z mode</span>
               <strong>{runtimeConfig?.entry_zscore_mode ?? "roll2000"}</strong>
             </div>
@@ -1071,6 +1288,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <div className={styles.stackedCharts}>
             <PremiumSparkline events={currentEvents} premiumLimit={premiumChartLimit} />
             <ZScoreSparkline events={currentEvents} zLimit={zScoreChartLimit} />
+            <MomentumFilterSparkline
+              events={currentEvents}
+              premiumDeltaLimit={premiumDelta5mLimit}
+              ada15AdverseLimit={ada15AdverseLimit}
+            />
           </div>
         </article>
 

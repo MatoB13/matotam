@@ -1131,3 +1131,13 @@
 .staleText {
   color: #7f8b99 !important;
 }
+
+.warnLimitLine {
+  stroke: rgba(255, 184, 77, 0.58);
+  stroke-width: 1.5;
+  stroke-dasharray: 7 7;
+}
+
+.momentumChartBox {
+  min-height: 300px;
+}
