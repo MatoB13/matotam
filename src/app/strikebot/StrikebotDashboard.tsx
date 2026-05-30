@@ -145,6 +145,8 @@ type OrderSummary = {
 
 type StrikebotData = {
   asset?: string;
+  botMode?: DashboardBotMode;
+  availableBotModes?: DashboardBotMode[];
   availableAssets?: string[];
   generatedAt: string;
   latestSnapshot: Snapshot | null;
@@ -173,7 +175,9 @@ const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
 const SUPPORTED_ASSETS = ["ADA"] as const;
+const BOT_MODES = ["live", "hft"] as const;
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
+type DashboardBotMode = (typeof BOT_MODES)[number];
 type DashboardTab = "status" | "charts" | "positions" | "orders" | "events";
 
 function normalizeAsset(value: string | null | undefined): DashboardAsset {
@@ -181,6 +185,17 @@ function normalizeAsset(value: string | null | undefined): DashboardAsset {
   return SUPPORTED_ASSETS.includes(normalized as DashboardAsset)
     ? (normalized as DashboardAsset)
     : "ADA";
+}
+
+function normalizeBotMode(value: string | null | undefined): DashboardBotMode {
+  const normalized = String(value || "live").trim().toLowerCase();
+  return BOT_MODES.includes(normalized as DashboardBotMode)
+    ? (normalized as DashboardBotMode)
+    : "live";
+}
+
+function botModeLabel(value: DashboardBotMode): string {
+  return value === "hft" ? "HFT Model #2" : "Live executor";
 }
 
 function isLiveRow(item: {
@@ -824,6 +839,7 @@ function isPushSupported(): boolean {
 
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
+  const [selectedBotMode, setSelectedBotMode] = useState<DashboardBotMode>("live");
   const [data, setData] = useState<StrikebotData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -844,7 +860,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}&asset=${encodeURIComponent(selectedAsset)}`, {
+      const response = await fetch(`/api/strikebot/status?token=${encodeURIComponent(token)}&asset=${encodeURIComponent(selectedAsset)}&bot=${encodeURIComponent(selectedBotMode)}`, {
         cache: "no-store",
       });
       const payload = (await response.json()) as ApiResponse;
@@ -862,14 +878,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token, selectedAsset]);
+  }, [token, selectedAsset, selectedBotMode]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
   useEffect(() => {
     setSignalPage(0);
-  }, [selectedAsset]);
+  }, [selectedAsset, selectedBotMode]);
 
 
   useEffect(() => {
@@ -959,14 +975,16 @@ export default function StrikebotDashboard({ token }: { token: string }) {
   }, []);
 
   const isLiveAsset = selectedAsset === "ADA";
+  const isHftBot = selectedBotMode === "hft";
+  const isTradingDashboard = isLiveAsset;
 
   const currentEvents = useMemo(() => {
     return data?.recentEvents ?? [];
   }, [data]);
 
   const liveEvents = useMemo(() => {
-    return currentEvents.filter((event) => event.dry_run === false && event.trading_enabled === true);
-  }, [currentEvents]);
+    return currentEvents.filter((event) => isHftBot || (event.dry_run === false && event.trading_enabled === true));
+  }, [currentEvents, isHftBot]);
 
   const allEvents = useMemo(() => {
     return data?.allEvents ?? data?.recentEvents ?? [];
@@ -996,7 +1014,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
   const visibleOrders = useMemo(() => {
     return (data?.recentOrders ?? []).filter((order) => {
-      if (!isLiveRow(order)) return false;
+      if (!isHftBot && !isLiveRow(order)) return false;
       if (!matchesConfig(order, activeConfigName)) return false;
       const status = normalizedStatus(order.status);
       if (status.includes("DRY_RUN")) return false;
@@ -1004,7 +1022,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
       if (isExpiredUnconfirmedOrder(order)) return false;
       return true;
     });
-  }, [data, activeConfigName]);
+  }, [data, activeConfigName, isHftBot]);
 
   const visibleOrders24h = useMemo(() => {
     return visibleOrders.filter((order) => isWithinHours(order.created_at, 24));
@@ -1012,9 +1030,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
   const visiblePositions = useMemo(() => {
     return (data?.recentPositions ?? []).filter((position) => {
-      return isLiveRow(position) && matchesConfig(position, activeConfigName);
+      return (isHftBot || isLiveRow(position)) && matchesConfig(position, activeConfigName);
     });
-  }, [data, activeConfigName]);
+  }, [data, activeConfigName, isHftBot]);
 
   const activeOrClosedPositions = useMemo(() => {
     return visiblePositions.filter((position) => !isStalePositionStatus(position.status));
@@ -1026,9 +1044,9 @@ export default function StrikebotDashboard({ token }: { token: string }) {
 
   const hiddenStaleOrders = useMemo(() => {
     return (data?.recentOrders ?? []).filter((order) => {
-      return isLiveRow(order) && matchesConfig(order, activeConfigName) && (isStaleOrderStatus(order.status) || isExpiredUnconfirmedOrder(order));
+      return (isHftBot || isLiveRow(order)) && matchesConfig(order, activeConfigName) && (isStaleOrderStatus(order.status) || isExpiredUnconfirmedOrder(order));
     });
-  }, [data, activeConfigName]);
+  }, [data, activeConfigName, isHftBot]);
 
   const positions24h = useMemo(() => {
     return activeOrClosedPositions.filter((position) => isWithinHours(position.updated_at || position.created_at, 24));
@@ -1112,10 +1130,11 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     openPositions,
   ]);
 
+  const runtimeConfig = data?.runtimeConfig ?? null;
   const latestEvent = currentEvents[0] ?? allEvents[0] ?? null;
   const lastSignalEvent = signalHistory[0] ?? null;
-  const tradingEnabled = isLiveAsset ? (latestEvent?.trading_enabled ?? false) : false;
-  const dryRun = isLiveAsset ? (latestEvent?.dry_run ?? true) : true;
+  const tradingEnabled = isTradingDashboard ? (runtimeConfig?.trading_enabled ?? latestEvent?.trading_enabled ?? false) : false;
+  const dryRun = isTradingDashboard ? (runtimeConfig?.dry_run ?? latestEvent?.dry_run ?? true) : true;
   const latestEventAge = ageSeconds(latestEvent?.created_at);
   const heartbeatOk = latestEventAge !== null && latestEventAge < 180;
   const latestZ = toNumber(latestEvent?.premium_z);
@@ -1144,7 +1163,6 @@ export default function StrikebotDashboard({ token }: { token: string }) {
     active: apiBurstSummary?.active ?? burstModeActive,
   };
 
-  const runtimeConfig = data?.runtimeConfig ?? null;
   const premiumChartLimit = toNumber(runtimeConfig?.entry_premium_threshold) ?? 0.60;
   const zScoreChartLimit = toNumber(runtimeConfig?.entry_zscore_threshold) ?? 2.50;
   const premiumDelta5mLimit = toNumber(runtimeConfig?.entry_premium_5m_delta_threshold) ?? 0.30;
@@ -1160,15 +1178,27 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
           <div className={styles.titleRow}>
-            <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} DASHBOARD</span></h1>
+            <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} {isHftBot ? "HFT" : "LIVE"}</span></h1>
             {burstModeActive ? (
               <div className={styles.burstBanner}>Burst mode activated!</div>
             ) : null}
           </div>
-          <p className={styles.subtitle}>{isLiveAsset ? "Read-only status dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
+          <p className={styles.subtitle}>{isHftBot ? "Read-only HFT Model #2 dashboard. No order controls." : isLiveAsset ? "Read-only live executor dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
         </div>
 
         <div className={styles.headerActions}>
+          <div className={styles.botTabs} aria-label="Bot selector">
+            {BOT_MODES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={selectedBotMode === mode ? styles.botTabActive : styles.botTab}
+                onClick={() => setSelectedBotMode(mode)}
+              >
+                {botModeLabel(mode)}
+              </button>
+            ))}
+          </div>
           <button
             className={pushEnabled ? styles.pushButtonEnabled : styles.pushButton}
             onClick={() => void enablePushNotifications()}
@@ -1203,14 +1233,14 @@ export default function StrikebotDashboard({ token }: { token: string }) {
             <span className={heartbeatOk ? styles.liveDot : styles.staleDot} />
             {tradingEnabled ? "LIVE" : "SAFE"}
           </strong>
-          <small>{isLiveAsset ? (dryRun ? "DRY-RUN" : "REAL ORDERS ENABLED") : "COLLECTOR ONLY"}</small>
+          <small>{isTradingDashboard ? (dryRun ? "DRY-RUN" : "REAL ORDERS ENABLED") : "COLLECTOR ONLY"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Heartbeat</span>
           <strong className={heartbeatOk ? styles.goodText : styles.badText}>
             {latestEventAge === null ? "—" : `${latestEventAge}s`}
           </strong>
-          <small>{isLiveAsset ? "latest live event" : "latest market snapshot"}</small>
+          <small>{isTradingDashboard ? (isHftBot ? "latest HFT event" : "latest live event") : "latest market snapshot"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Premium</span>
@@ -1243,7 +1273,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
         <article className={styles.metricCard}>
           <span>PnL all time</span>
-          <strong className={isLiveAsset ? (stats.totalPnlAll >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
+          <strong className={isTradingDashboard ? (stats.totalPnlAll >= 0 ? styles.goodText : styles.badText) : styles.mutedText}>
             {isLiveAsset ? stats.totalPnlAll.toFixed(4) : "N/A"}
           </strong>
           <small>{isLiveAsset ? "USD · realized" : "collector only"}</small>
@@ -1284,7 +1314,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel} ${styles.settingsPanel}`}>
-          <h2>{isLiveAsset ? "Bot Settings" : "Collector Signal View"}</h2>
+          <h2>{isTradingDashboard ? (isHftBot ? "HFT Bot Settings" : "Bot Settings") : "Collector Signal View"}</h2>
           <div className={styles.rulesCompact}>
             <div>
               <span>Config</span>
@@ -1344,8 +1374,8 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel} ${styles.ordersSummaryPanel}`}>
-          <h2>{isLiveAsset ? "Orders Summary" : "Market Summary"}</h2>
-          {isLiveAsset ? (
+          <h2>{isTradingDashboard ? (isHftBot ? "HFT Orders Summary" : "Orders Summary") : "Market Summary"}</h2>
+          {isTradingDashboard ? (
             <div className={styles.rulesCompact}>
               <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
               <div><span>Orders total</span><strong>{stats.orderCountAll}</strong></div>

@@ -21,17 +21,22 @@ function normalizeAsset(value: string | null): string {
   return ["ADA", "BTC", "ZEC"].includes(normalized) ? normalized : "ADA";
 }
 
+function normalizeBotMode(value: string | null): string {
+  return String(value || "live").trim().toLowerCase() === "hft" ? "hft" : "live";
+}
+
 export async function GET(request: NextRequest) {
   const expectedToken = process.env.STRIKEBOT_DASHBOARD_TOKEN;
   const token = request.nextUrl.searchParams.get("token");
   const asset = normalizeAsset(request.nextUrl.searchParams.get("asset"));
+  const bot = normalizeBotMode(request.nextUrl.searchParams.get("bot"));
 
   if (!expectedToken || !token || token !== expectedToken) {
     return unauthorized();
   }
 
   try {
-    const data = await getStrikebotStatus(asset);
+    const data = await getStrikebotStatus(asset, bot);
 
     return NextResponse.json(
       { ok: true, data },

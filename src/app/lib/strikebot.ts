@@ -1,6 +1,8 @@
 import { Pool } from "pg";
 
 export type StrikebotAsset = "ADA" | "BTC" | "ZEC";
+export type StrikebotBotMode = "live" | "hft";
+
 
 export type StrikebotSnapshot = {
   id: number;
@@ -150,6 +152,44 @@ export type StrikebotRuntimeConfig = {
 };
 
 const SUPPORTED_ASSETS: StrikebotAsset[] = ["ADA", "BTC", "ZEC"];
+
+type StrikebotTableSet = {
+  mode: StrikebotBotMode;
+  runtimeEvents: string;
+  liveOrders: string;
+  livePositions: string;
+  runtimeConfig: string;
+  includeDryRunRows: boolean;
+};
+
+function normalizeBotMode(value: string | null | undefined): StrikebotBotMode {
+  return String(value || "live").trim().toLowerCase() === "hft" ? "hft" : "live";
+}
+
+function getTableSet(botModeInput?: string | null): StrikebotTableSet {
+  const mode = normalizeBotMode(botModeInput);
+
+  if (mode === "hft") {
+    return {
+      mode,
+      runtimeEvents: "hft_runtime_events",
+      liveOrders: "hft_live_orders",
+      livePositions: "hft_live_positions",
+      runtimeConfig: "hft_runtime_config",
+      includeDryRunRows: true,
+    };
+  }
+
+  return {
+    mode: "live",
+    runtimeEvents: "live_runtime_events",
+    liveOrders: "live_orders",
+    livePositions: "live_positions",
+    runtimeConfig: "bot_runtime_config",
+    includeDryRunRows: false,
+  };
+}
+
 
 const globalForPg = globalThis as unknown as {
   strikebotPool?: Pool;
@@ -387,9 +427,10 @@ function buildSyntheticEventsFromSnapshots(
     .reverse();
 }
 
-export async function getStrikebotStatus(assetInput?: string | null) {
+export async function getStrikebotStatus(assetInput?: string | null, botModeInput?: string | null) {
   const asset = normalizeAsset(assetInput);
   const pool = getPool();
+  const tables = getTableSet(botModeInput);
   const isLiveAsset = asset === "ADA";
 
   const currentConfigResult = isLiveAsset
@@ -397,11 +438,11 @@ export async function getStrikebotStatus(assetInput?: string | null) {
         `
         SELECT config_name
         FROM (
-          SELECT config_name, created_at FROM live_runtime_events WHERE config_name IS NOT NULL AND asset = $1
+          SELECT config_name, created_at FROM ${tables.runtimeEvents} WHERE config_name IS NOT NULL AND asset = $1
           UNION ALL
-          SELECT config_name, created_at FROM live_orders WHERE config_name IS NOT NULL AND asset = $1
+          SELECT config_name, created_at FROM ${tables.liveOrders} WHERE config_name IS NOT NULL AND asset = $1
           UNION ALL
-          SELECT config_name, created_at FROM live_positions WHERE config_name IS NOT NULL AND asset = $1
+          SELECT config_name, created_at FROM ${tables.livePositions} WHERE config_name IS NOT NULL AND asset = $1
         ) configs
         ORDER BY created_at DESC
         LIMIT 1
@@ -479,6 +520,8 @@ export async function getStrikebotStatus(assetInput?: string | null) {
 
     return {
       asset,
+      botMode: tables.mode,
+      availableBotModes: ["live", "hft"],
       availableAssets: SUPPORTED_ASSETS,
       generatedAt: new Date().toISOString(),
       latestSnapshot: latestSnapshot.rows[0] ?? null,
@@ -507,6 +550,9 @@ export async function getStrikebotStatus(assetInput?: string | null) {
     };
   }
 
+  const summaryDryRunPredicate = tables.includeDryRunRows ? "" : "AND dry_run = FALSE";
+  const summaryTradingPredicate = tables.includeDryRunRows ? "" : "AND trading_enabled = TRUE";
+
   const [
     latestSnapshot,
     recentEvents,
@@ -525,7 +571,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
       `
       SELECT id, asset, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
-      FROM live_runtime_events
+      FROM ${tables.runtimeEvents}
       WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
       ORDER BY id DESC
@@ -537,7 +583,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
       `
       SELECT id, asset, created_at, run_name, config_name, event_type, severity, message,
              signal, premium_pct, premium_z, price, dry_run, trading_enabled, metadata
-      FROM live_runtime_events
+      FROM ${tables.runtimeEvents}
       WHERE asset = $1
       ORDER BY id DESC
       LIMIT 5000
@@ -547,7 +593,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
     pool.query<PgEventCountRow>(
       `
       SELECT event_type, COUNT(*)::text AS count
-      FROM live_runtime_events
+      FROM ${tables.runtimeEvents}
       WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY event_type
@@ -559,7 +605,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
       `
       SELECT id, asset, created_at, run_name, config_name, status, side, order_type,
              price, premium_pct, premium_z, size_usd, leverage, dry_run, trading_enabled
-      FROM live_orders
+      FROM ${tables.liveOrders}
       WHERE asset = $1
       ORDER BY id DESC
       LIMIT 1000
@@ -571,7 +617,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
       SELECT id, asset, created_at, updated_at, run_name, config_name, status, side,
              entry_price, exit_price, pnl_pct, pnl_usd, exit_reason, size_usd,
              leverage, dry_run, trading_enabled
-      FROM live_positions
+      FROM ${tables.livePositions}
       WHERE asset = $1
       ORDER BY id DESC
       LIMIT 1000
@@ -581,7 +627,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
     pool.query<PgCountRow>(
       `
       SELECT COUNT(*)::text AS count
-      FROM live_orders
+      FROM ${tables.liveOrders}
       WHERE asset = $1
         AND created_at >= NOW() - INTERVAL '24 hours'
       `,
@@ -596,7 +642,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
         COUNT(*) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours' AND COALESCE(pnl_usd, 0) < 0)::text AS losers,
         COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS total_pnl_usd,
         COALESCE(AVG(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS avg_pnl_usd
-      FROM live_positions
+      FROM ${tables.livePositions}
       WHERE asset = $1
       `,
       [asset],
@@ -620,11 +666,11 @@ export async function getStrikebotStatus(assetInput?: string | null) {
               AND status NOT ILIKE '%CANCEL%'
               AND NOT (status = 'LIVE_UNCONFIRMED' AND created_at < NOW() - INTERVAL '10 minutes')
           )::text AS orders_24h
-        FROM live_orders
+        FROM ${tables.liveOrders}
         WHERE asset = $2
           AND ($1::text IS NULL OR config_name = $1::text)
-          AND dry_run = FALSE
-          AND trading_enabled = TRUE
+          ${summaryDryRunPredicate}
+          ${summaryTradingPredicate}
       ),
       position_agg AS (
         SELECT
@@ -634,11 +680,11 @@ export async function getStrikebotStatus(assetInput?: string | null) {
           COUNT(*) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours' AND COALESCE(pnl_usd, 0) > 0)::text AS winners_24h,
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED'), 0)::text AS pnl_total,
           COALESCE(SUM(pnl_usd) FILTER (WHERE status = 'CLOSED' AND updated_at >= NOW() - INTERVAL '24 hours'), 0)::text AS pnl_24h
-        FROM live_positions
+        FROM ${tables.livePositions}
         WHERE asset = $2
           AND ($1::text IS NULL OR config_name = $1::text)
-          AND dry_run = FALSE
-          AND trading_enabled = TRUE
+          ${summaryDryRunPredicate}
+          ${summaryTradingPredicate}
       )
       SELECT
         $1::text AS config_name,
@@ -686,7 +732,7 @@ export async function getStrikebotStatus(assetInput?: string | null) {
           bot_managed_price_exits_enabled,
           refresh_open_position_rules,
           config_json
-        FROM bot_runtime_config
+        FROM ${tables.runtimeConfig}
         WHERE id = 1
           AND asset = $1
         LIMIT 1
@@ -712,6 +758,8 @@ export async function getStrikebotStatus(assetInput?: string | null) {
 
   return {
     asset,
+    botMode: tables.mode,
+    availableBotModes: ["live", "hft"],
     availableAssets: SUPPORTED_ASSETS,
     generatedAt: new Date().toISOString(),
     latestSnapshot: latestSnapshot.rows[0] ?? null,

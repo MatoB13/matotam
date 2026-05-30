@@ -1276,3 +1276,48 @@
     border-radius: 14px;
   }
 }
+
+.botTabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.botTab,
+.botTabActive {
+  border: 1px solid rgba(168, 181, 197, 0.24);
+  border-radius: 999px;
+  background: rgba(168, 181, 197, 0.08);
+  color: #cbd8e6;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.botTab:hover {
+  border-color: rgba(91, 160, 255, 0.5);
+  background: rgba(91, 160, 255, 0.13);
+}
+
+.botTabActive {
+  border-color: rgba(69, 239, 108, 0.72);
+  background: rgba(69, 239, 108, 0.18);
+  color: #e5ffed;
+  box-shadow: 0 0 22px rgba(69, 239, 108, 0.14);
+}
+
+@media (max-width: 900px) {
+  .botTabs {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .botTab,
+  .botTabActive {
+    flex: 1 1 140px;
+  }
+}
