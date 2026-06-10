@@ -43,6 +43,20 @@ type SentimentPaperTrade = {
   updated_at: string;
 };
 
+type SentimentEvaluation = {
+  id: number;
+  prediction_run_id: string;
+  trade_date: string;
+  ticker: string;
+  decision: string;
+  reference_price: string | number | null;
+  evaluation_price: string | number | null;
+  result_pct: string | number | null;
+  actual_outcome: string | null;
+  hit: boolean | null;
+  evaluated_at: string;
+};
+
 type SentimentPerformance = {
   predictions_total: string;
   trade_count: string;
@@ -54,6 +68,10 @@ type SentimentPerformance = {
   total_realized_pnl_pct: string | null;
   best_trade_pct: string | null;
   worst_trade_pct: string | null;
+  evaluated_count?: string;
+  evaluated_hits?: string;
+  evaluated_misses?: string;
+  evaluation_hit_rate_pct?: string | null;
 };
 
 type SentimentData = {
@@ -62,6 +80,7 @@ type SentimentData = {
   latest: SentimentPrediction[];
   history: SentimentPrediction[];
   paperTrades: SentimentPaperTrade[];
+  evaluations?: SentimentEvaluation[];
   performance: SentimentPerformance;
 };
 
@@ -242,6 +261,7 @@ export default function SentimentDashboard({ token }: { token: string }) {
 
   const latest = data?.latest ?? [];
   const paperTrades = data?.paperTrades ?? [];
+  const evaluations = data?.evaluations ?? [];
   const performance = data?.performance;
 
   const tickers = useMemo(() => {
@@ -294,6 +314,8 @@ export default function SentimentDashboard({ token }: { token: string }) {
         <MetricCard label="Avg realized PnL" value={formatPct(performance?.avg_realized_pnl_pct, 4)} detail="closed paper trades" className={classForPnl(performance?.avg_realized_pnl_pct)} />
         <MetricCard label="Best trade" value={formatPct(performance?.best_trade_pct, 4)} detail="realized" className={classForPnl(performance?.best_trade_pct)} />
         <MetricCard label="Worst trade" value={formatPct(performance?.worst_trade_pct, 4)} detail="realized" className={classForPnl(performance?.worst_trade_pct)} />
+        <MetricCard label="Evaluated" value={performance?.evaluated_count ?? "0"} detail="daily outcomes" />
+        <MetricCard label="Evaluation hit rate" value={`${formatNumber(performance?.evaluation_hit_rate_pct, 1)}%`} detail="LONG/SHORT only" />
       </section>
 
       <section className={styles.panelFull}>
@@ -446,6 +468,47 @@ export default function SentimentDashboard({ token }: { token: string }) {
                   <td>{formatConfidence(row.confidence)}</td>
                   <td>{row.status ?? "—"}</td>
                   <td>{formatNumber(row.reference_price, 6)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className={styles.panelFull}>
+        <div className={styles.panelTitleRow}>
+          <h2>Daily Evaluation</h2>
+          <span>{evaluations.length} evaluated predictions</span>
+        </div>
+        <div className={styles.tableWrap}>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Ticker</th>
+                <th>Decision</th>
+                <th>Reference</th>
+                <th>Eval price</th>
+                <th>Result</th>
+                <th>Outcome</th>
+                <th>Hit</th>
+                <th>Evaluated CET</th>
+              </tr>
+            </thead>
+            <tbody>
+              {evaluations.length === 0 ? (
+                <tr><td colSpan={9} className={styles.emptyCell}>No evaluated daily predictions yet.</td></tr>
+              ) : evaluations.slice(0, 120).map((row) => (
+                <tr key={row.id}>
+                  <td>{row.trade_date}</td>
+                  <td>{row.ticker}</td>
+                  <td className={classForDecision(row.decision)}>{row.decision}</td>
+                  <td>{formatNumber(row.reference_price, 6)}</td>
+                  <td>{formatNumber(row.evaluation_price, 6)}</td>
+                  <td className={classForPnl(row.result_pct)}>{formatPct(row.result_pct, 4)}</td>
+                  <td>{row.actual_outcome ?? "—"}</td>
+                  <td className={row.hit === true ? styles.goodText : row.hit === false ? styles.badText : styles.mutedText}>{row.hit === null ? "—" : row.hit ? "yes" : "no"}</td>
+                  <td>{formatDateTime(row.evaluated_at)}</td>
                 </tr>
               ))}
             </tbody>
