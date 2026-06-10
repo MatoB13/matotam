@@ -225,21 +225,21 @@
   overflow-x: auto;
 }
 
-table {
+.tableWrap table {
   width: 100%;
   border-collapse: collapse;
   min-width: 860px;
 }
 
-th,
-td {
+.tableWrap th,
+.tableWrap td {
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   text-align: left;
   font-size: 13px;
 }
 
-th {
+.tableWrap th {
   color: #91a39a;
   font-size: 11px;
   text-transform: uppercase;
