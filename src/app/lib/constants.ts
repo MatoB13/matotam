@@ -18,17 +18,26 @@ export const CARDANO_NETWORK = (() => {
   return "Preprod";
 })() as "Mainnet" | "Preprod" | "Preview";
 
-export const BLOCKFROST_API =
-  process.env.NEXT_PUBLIC_BLOCKFROST_API?.trim() ||
+// Real Blockfrost credentials. These are SERVER-ONLY (no NEXT_PUBLIC_ prefix),
+// so they are never inlined into client JS bundles. Only import these from
+// server code (API routes) — never from a "use client" component.
+export const BLOCKFROST_SERVER_API =
+  process.env.BLOCKFROST_API?.trim() ||
   (CARDANO_NETWORK === "Mainnet"
     ? "https://cardano-mainnet.blockfrost.io/api/v0"
     : CARDANO_NETWORK === "Preview"
     ? "https://cardano-preview.blockfrost.io/api/v0"
     : "https://cardano-preprod.blockfrost.io/api/v0");
 
+export const BLOCKFROST_SERVER_KEY = process.env.BLOCKFROST_KEY?.trim() || "";
 
-export const BLOCKFROST_KEY =
-  process.env.NEXT_PUBLIC_BLOCKFROST_KEY?.trim() || "";
+// Client-safe values: point at our own same-origin proxy route
+// (src/app/api/blockfrost/[...path]/route.ts) instead of blockfrost.io
+// directly, so the real project_id key never reaches the browser.
+// The proxy ignores whatever project_id header the client sends and
+// attaches BLOCKFROST_SERVER_KEY itself.
+export const BLOCKFROST_API = "/api/blockfrost";
+export const BLOCKFROST_KEY = "via-server-proxy";
 
 // ADA Handle mainnet policy
 export const ADA_HANDLE_POLICY_ID =

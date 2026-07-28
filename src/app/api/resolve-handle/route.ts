@@ -1,7 +1,11 @@
 // src/app/api/resolve-handle/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-import { ADA_HANDLE_POLICY_ID, BLOCKFROST_API, BLOCKFROST_KEY } from "@/app/lib/constants";
+import {
+  ADA_HANDLE_POLICY_ID,
+  BLOCKFROST_SERVER_API as BLOCKFROST_API,
+  BLOCKFROST_SERVER_KEY as BLOCKFROST_KEY,
+} from "@/app/lib/constants";
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });

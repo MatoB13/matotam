@@ -1,6 +1,6 @@
 // src/app/lib/overviewSync.ts
 
-import { BLOCKFROST_API, BLOCKFROST_KEY, DEV_ADDRESS } from "./constants";
+import { BLOCKFROST_SERVER_API as BLOCKFROST_API, BLOCKFROST_SERVER_KEY as BLOCKFROST_KEY, DEV_ADDRESS } from "./constants";
 import { MatotamOverviewRow, MatotamSyncState } from "./overviewTypes";
 
 const MATOTAM_SOURCE = "https://matotam.io";
