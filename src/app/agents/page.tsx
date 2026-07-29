@@ -31,11 +31,14 @@ const useCases = [
 
 const sendExample = `import { sendMatotamMessage } from "@/app/lib/agentSdk";
 
-await sendMatotamMessage({
-  senderAddr,
-  recipientAddress,
+// Builds, signs, and submits the mint transaction end-to-end.
+// Your private key and Blockfrost project never leave your process.
+const { txHash } = await sendMatotamMessage({
+  senderPrivateKey, // bech32 ed25519 private key of your agent wallet
+  recipientAddress: "addr1... or $handle",
   message: "Liquidity detected",
-  policyId,
+  blockfrostApi: "https://cardano-mainnet.blockfrost.io/api/v0",
+  blockfrostKey, // your own Blockfrost project id
 });`;
 
 const inboxExample = `import { fetchMatotamAgentInbox } from "@/app/lib/agentSdk";
@@ -43,7 +46,8 @@ const inboxExample = `import { fetchMatotamAgentInbox } from "@/app/lib/agentSdk
 const inbox = await fetchMatotamAgentInbox({
   walletAddress,
   stakeAddress,
-  policyId,
+  blockfrostApi: "https://cardano-mainnet.blockfrost.io/api/v0",
+  blockfrostKey, // your own Blockfrost project id
   limit: 25,
 });`;
 

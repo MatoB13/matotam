@@ -1,33 +1,36 @@
-import { buildMatotamMintData } from "./mint";
 import { fetchInboxMessages } from "./inbox";
 import {
-  BLOCKFROST_API,
-  BLOCKFROST_KEY,
+  sendMatotamMessageOnChain,
+  type SendMatotamMessageParams,
+  type SendMatotamMessageResult,
+} from "./agentMint";
+import {
+  BLOCKFROST_API as DEFAULT_BLOCKFROST_API,
+  BLOCKFROST_KEY as DEFAULT_BLOCKFROST_KEY,
 } from "./constants";
 
-export interface AgentMessageParams {
-  senderAddr: string;
-  recipientAddress: string;
-  message: string;
-  policyId: string;
-}
+export type AgentMessageParams = SendMatotamMessageParams;
 
 export interface AgentInboxQuery {
   walletAddress: string | null;
   stakeAddress: string | null;
   policyId?: string;
   limit?: number;
+  /** Override Blockfrost credentials — required when calling from outside
+   * a matotam.io request (e.g. a standalone agent script). */
+  blockfrostApi?: string;
+  blockfrostKey?: string;
 }
 
+/**
+ * Build, sign, and submit a Matotam message NFT end-to-end. Performs a real
+ * on-chain transaction using the caller-supplied private key and Blockfrost
+ * project — matotam never sees either.
+ */
 export async function sendMatotamMessage(
   params: AgentMessageParams
-) {
-  return buildMatotamMintData({
-    senderAddr: params.senderAddr,
-    recipientAddress: params.recipientAddress,
-    message: params.message,
-    policyId: params.policyId,
-  });
+): Promise<SendMatotamMessageResult> {
+  return sendMatotamMessageOnChain(params);
 }
 
 export async function fetchMatotamAgentInbox(
@@ -36,8 +39,8 @@ export async function fetchMatotamAgentInbox(
   const messages = await fetchInboxMessages({
     walletAddress: query.walletAddress,
     stakeAddress: query.stakeAddress,
-    blockfrostApi: BLOCKFROST_API,
-    blockfrostKey: BLOCKFROST_KEY,
+    blockfrostApi: query.blockfrostApi ?? DEFAULT_BLOCKFROST_API,
+    blockfrostKey: query.blockfrostKey ?? DEFAULT_BLOCKFROST_KEY,
     overridePolicyId: query.policyId,
   });
 

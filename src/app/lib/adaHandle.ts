@@ -1,6 +1,6 @@
 import {
-  BLOCKFROST_API,
-  BLOCKFROST_KEY,
+  BLOCKFROST_API as DEFAULT_BLOCKFROST_API,
+  BLOCKFROST_KEY as DEFAULT_BLOCKFROST_KEY,
   ADA_HANDLE_POLICY_ID,
 } from "./constants";
 
@@ -24,17 +24,24 @@ export function looksLikeAdaHandle(value: string): boolean {
  *   Instead, call our server route: /api/resolve-handle
  * - On the server (route code), you can call handle.me + Blockfrost safely.
  */
-export async function resolveAdaHandle(handle: string): Promise<string | null> {
+export async function resolveAdaHandle(
+  handle: string,
+  overrides?: { blockfrostApi?: string; blockfrostKey?: string }
+): Promise<string | null> {
   try {
     const raw = handle.trim();
     const base = raw.startsWith("$") ? raw.slice(1) : raw;
     const name = base.trim();
     if (!name) return null;
 
+    const BLOCKFROST_API = overrides?.blockfrostApi ?? DEFAULT_BLOCKFROST_API;
+    const BLOCKFROST_KEY = overrides?.blockfrostKey ?? DEFAULT_BLOCKFROST_KEY;
+
     // ----------------------------
-    // CLIENT: always call our API route (avoids CORS)
+    // CLIENT: always call our API route (avoids CORS), unless the caller
+    // (e.g. a headless agent script) explicitly supplied its own credentials.
     // ----------------------------
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && !overrides) {
       const resp = await fetch(
         `/api/resolve-handle?handle=${encodeURIComponent(name)}`,
         { cache: "no-store" }
@@ -140,11 +147,11 @@ export async function reverseLookupAdaHandle(address: string): Promise<string | 
   try {
     const addr = address.trim();
     if (!addr || !addr.startsWith("addr")) return null;
-    if (!BLOCKFROST_API || !BLOCKFROST_KEY || !ADA_HANDLE_POLICY_ID) return null;
+    if (!DEFAULT_BLOCKFROST_API || !DEFAULT_BLOCKFROST_KEY || !ADA_HANDLE_POLICY_ID) return null;
 
     // 1) Convert base address -> stake address via Blockfrost
-    const addrResp = await fetch(`${BLOCKFROST_API}/addresses/${addr}`, {
-      headers: { project_id: BLOCKFROST_KEY },
+    const addrResp = await fetch(`${DEFAULT_BLOCKFROST_API}/addresses/${addr}`, {
+      headers: { project_id: DEFAULT_BLOCKFROST_KEY },
     });
 
     if (!addrResp.ok) return null;
@@ -160,8 +167,8 @@ export async function reverseLookupAdaHandle(address: string): Promise<string | 
 
     while (page <= maxPages) {
       const assetsResp = await fetch(
-        `${BLOCKFROST_API}/accounts/${stake}/addresses/assets?page=${page}&count=100`,
-        { headers: { project_id: BLOCKFROST_KEY } }
+        `${DEFAULT_BLOCKFROST_API}/accounts/${stake}/addresses/assets?page=${page}&count=100`,
+        { headers: { project_id: DEFAULT_BLOCKFROST_KEY } }
       );
 
       if (!assetsResp.ok) break;

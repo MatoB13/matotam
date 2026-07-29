@@ -1,4 +1,8 @@
-import { BLOCKFROST_API, BLOCKFROST_KEY, DEV_ADDRESS } from "./constants";
+import {
+  BLOCKFROST_API as DEFAULT_BLOCKFROST_API,
+  BLOCKFROST_KEY as DEFAULT_BLOCKFROST_KEY,
+  DEV_ADDRESS,
+} from "./constants";
 import { splitAsciiIntoSegments, makeSafeMetadataText } from "./textEncoding";
 import { splitIntoSegments } from "./segments";
 import { encodeUnitToQuickBurnId } from "./quickBurn";
@@ -173,9 +177,20 @@ export async function buildMatotamMintData(params: {
   message: string;
   policyId: string;
   encryptedPayload?: EncryptedPayload;
+  /** Override Blockfrost credentials — used by headless agent callers that
+   * supply their own project key instead of relying on this app's proxy. */
+  blockfrostApi?: string;
+  blockfrostKey?: string;
 }): Promise<MintBuildResult> {
-  const { senderAddr, recipientAddress, message, policyId, encryptedPayload } =
-    params;
+  const {
+    senderAddr,
+    recipientAddress,
+    message,
+    policyId,
+    encryptedPayload,
+    blockfrostApi = DEFAULT_BLOCKFROST_API,
+    blockfrostKey = DEFAULT_BLOCKFROST_KEY,
+  } = params;
 
   const isEncrypted = !!encryptedPayload;
 
@@ -209,8 +224,8 @@ export async function buildMatotamMintData(params: {
 
   // 1) Try Blockfrost-based next sequence
   let seqFromBf: number | null = await getNextSeqFromBlockfrost({
-    blockfrostApi: BLOCKFROST_API,
-    blockfrostKey: BLOCKFROST_KEY,
+    blockfrostApi,
+    blockfrostKey,
     policyId,
     prefix,
   });

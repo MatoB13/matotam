@@ -7,10 +7,22 @@ export const metadata: Metadata = {
 };
 
 const sendSchema = `{
-  "senderAddr": "addr1...",
-  "recipientAddress": "addr1...",
+  "senderPrivateKey": "ed25519_sk1...",
+  "recipientAddress": "addr1... or $handle",
   "message": "Liquidity detected",
-  "policyId": "xxxxxxxx"
+  "passphrase": "optional - encrypts the message on-chain",
+  "blockfrostApi": "https://cardano-mainnet.blockfrost.io/api/v0",
+  "blockfrostKey": "your own Blockfrost project id",
+  "network": "Mainnet"
+}
+
+// Response:
+{
+  "txHash": "...",
+  "unit": "policyid + assetNameHex",
+  "assetNameBase": "matotam-xxx-yyy-001-ab",
+  "senderAddress": "addr1...",
+  "recipientAddress": "addr1..."
 }`;
 
 const inboxSchema = `{
