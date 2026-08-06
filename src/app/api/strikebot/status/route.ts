@@ -22,7 +22,9 @@ function normalizeAsset(value: string | null): string {
 }
 
 function normalizeBotMode(value: string | null): string {
-  return String(value || "live").trim().toLowerCase() === "hft" ? "hft" : "live";
+  // LIVE executor decommissioned 2026-08-06 - default to the remaining bot
+  // ("Sniper" in the UI, "hft" internally) instead of the retired one.
+  return String(value || "hft").trim().toLowerCase() === "live" ? "live" : "hft";
 }
 
 export async function GET(request: NextRequest) {

@@ -175,7 +175,11 @@ const REFRESH_SECONDS = 60;
 const PAGE_SIZE = 20;
 const BURST_PREMIUM_FALLBACK_ABS = 0.45;
 const SUPPORTED_ASSETS = ["ADA"] as const;
-const BOT_MODES = ["live", "hft"] as const;
+// LIVE executor was decommissioned 2026-08-06 (see cozy-tranquility Railway
+// project) - only the former HFT bot ("Sniper") remains. Kept as a
+// single-element array (rather than inlining "hft") so the bot-tab selector
+// below stays hidden automatically via BOT_MODES.length > 1.
+const BOT_MODES = ["hft"] as const;
 type DashboardAsset = (typeof SUPPORTED_ASSETS)[number];
 type DashboardBotMode = (typeof BOT_MODES)[number];
 type DashboardTab = "status" | "charts" | "positions" | "orders" | "events";
@@ -188,14 +192,14 @@ function normalizeAsset(value: string | null | undefined): DashboardAsset {
 }
 
 function normalizeBotMode(value: string | null | undefined): DashboardBotMode {
-  const normalized = String(value || "live").trim().toLowerCase();
+  const normalized = String(value || "hft").trim().toLowerCase();
   return BOT_MODES.includes(normalized as DashboardBotMode)
     ? (normalized as DashboardBotMode)
-    : "live";
+    : "hft";
 }
 
 function botModeLabel(value: DashboardBotMode): string {
-  return value === "hft" ? "HFT Model #2" : "Live executor";
+  return value === "hft" ? "Sniper" : "Live executor";
 }
 
 function isLiveRow(item: {
@@ -839,7 +843,7 @@ function isPushSupported(): boolean {
 
 export default function StrikebotDashboard({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<DashboardAsset>("ADA");
-  const [selectedBotMode, setSelectedBotMode] = useState<DashboardBotMode>("live");
+  const [selectedBotMode, setSelectedBotMode] = useState<DashboardBotMode>("hft");
   const [data, setData] = useState<StrikebotData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1178,27 +1182,29 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         <div>
           <p className={styles.eyebrow}>matotam.io private monitor</p>
           <div className={styles.titleRow}>
-            <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} {isHftBot ? "HFT" : "LIVE"}</span></h1>
+            <h1 className={styles.title}>STRIKE BOT <span>{selectedAsset} {isHftBot ? "Sniper" : "LIVE"}</span></h1>
             {burstModeActive ? (
               <div className={styles.burstBanner}>Burst mode activated!</div>
             ) : null}
           </div>
-          <p className={styles.subtitle}>{isHftBot ? "Read-only HFT Model #2 dashboard. No order controls." : isLiveAsset ? "Read-only live executor dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
+          <p className={styles.subtitle}>{isHftBot ? "Read-only Sniper dashboard. No order controls." : isLiveAsset ? "Read-only live executor dashboard. No order controls." : "Collector-only market monitor. No order controls."}</p>
         </div>
 
         <div className={styles.headerActions}>
-          <div className={styles.botTabs} aria-label="Bot selector">
-            {BOT_MODES.map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={selectedBotMode === mode ? styles.botTabActive : styles.botTab}
-                onClick={() => setSelectedBotMode(mode)}
-              >
-                {botModeLabel(mode)}
-              </button>
-            ))}
-          </div>
+          {BOT_MODES.length > 1 ? (
+            <div className={styles.botTabs} aria-label="Bot selector">
+              {BOT_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={selectedBotMode === mode ? styles.botTabActive : styles.botTab}
+                  onClick={() => setSelectedBotMode(mode)}
+                >
+                  {botModeLabel(mode)}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <button
             className={pushEnabled ? styles.pushButtonEnabled : styles.pushButton}
             onClick={() => void enablePushNotifications()}
@@ -1240,7 +1246,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
           <strong className={heartbeatOk ? styles.goodText : styles.badText}>
             {latestEventAge === null ? "—" : `${latestEventAge}s`}
           </strong>
-          <small>{isTradingDashboard ? (isHftBot ? "latest HFT event" : "latest live event") : "latest market snapshot"}</small>
+          <small>{isTradingDashboard ? (isHftBot ? "latest Sniper event" : "latest live event") : "latest market snapshot"}</small>
         </article>
         <article className={styles.metricCard}>
           <span>Premium</span>
@@ -1314,7 +1320,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel} ${styles.settingsPanel}`}>
-          <h2>{isTradingDashboard ? (isHftBot ? "HFT Bot Settings" : "Bot Settings") : "Collector Signal View"}</h2>
+          <h2>{isTradingDashboard ? (isHftBot ? "Sniper Bot Settings" : "Bot Settings") : "Collector Signal View"}</h2>
           <div className={styles.rulesCompact}>
             <div>
               <span>Config</span>
@@ -1374,7 +1380,7 @@ export default function StrikebotDashboard({ token }: { token: string }) {
         </article>
 
         <article className={`${styles.panel} ${styles.rulesPanel} ${styles.ordersSummaryPanel}`}>
-          <h2>{isTradingDashboard ? (isHftBot ? "HFT Orders Summary" : "Orders Summary") : "Market Summary"}</h2>
+          <h2>{isTradingDashboard ? (isHftBot ? "Sniper Orders Summary" : "Orders Summary") : "Market Summary"}</h2>
           {isTradingDashboard ? (
             <div className={styles.rulesCompact}>
               <div><span>Config</span><strong>{activeConfigName ?? "—"}</strong></div>
