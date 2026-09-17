@@ -24,6 +24,7 @@ import {
   handleConnectClick as coreHandleConnectClick,
   connectWithWallet as coreConnectWithWallet,
   disconnectWallet as coreDisconnectWallet,
+  describeWalletError,
 } from "./lib/wallet";
 import { buildMatotamMintData } from "./lib/mint";
 import { fetchInboxMessages } from "./lib/inbox";
@@ -452,19 +453,34 @@ async function sendMessageAsNFT() {
     // ------------------------------------------------------------------
     // Build, sign & submit transaction
     // ------------------------------------------------------------------
-    const tx = await lucid
-      .newTx()
-      .attachMetadata(721, mintData.metadata721)
-      .attachMintingPolicy(policy)
-      .mintAssets({ [mintData.unit]: 1n }, undefined as any)
-      .payToAddress(resolvedRecipient, { [mintData.unit]: 1n })
-      .payToAddress(DEV_ADDRESS, { lovelace: DEV_FEE_LOVELACE })
-      .complete();
+    let tx, signedTx, hash;
+    try {
+      tx = await lucid
+        .newTx()
+        .attachMetadata(721, mintData.metadata721)
+        .attachMintingPolicy(policy)
+        .mintAssets({ [mintData.unit]: 1n }, undefined as any)
+        .payToAddress(resolvedRecipient, { [mintData.unit]: 1n })
+        .payToAddress(DEV_ADDRESS, { lovelace: DEV_FEE_LOVELACE })
+        .complete();
+    } catch (e) {
+      console.error("sendMessageAsNFT: tx build (.complete()) failed", e);
+      throw e;
+    }
 
+    try {
+      signedTx = await tx.sign().complete();
+    } catch (e) {
+      console.error("sendMessageAsNFT: wallet signing failed", e);
+      throw e;
+    }
 
-
-    const signedTx = await tx.sign().complete();
-    const hash = await signedTx.submit();
+    try {
+      hash = await signedTx.submit();
+    } catch (e) {
+      console.error("sendMessageAsNFT: submit failed", e);
+      throw e;
+    }
 
     setTxHash(hash);
     setToAddress("");
@@ -478,7 +494,7 @@ async function sendMessageAsNFT() {
     setConfirmPassphrase("");
     } catch (e: any) {
       console.error(e);
-      setError(e?.message ?? "Failed to send transaction.");
+      setError(describeWalletError(e) ?? "Failed to send transaction.");
     }
  finally {
     setLoading(false);

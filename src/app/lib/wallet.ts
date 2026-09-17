@@ -5,7 +5,7 @@ import { BLOCKFROST_API, BLOCKFROST_KEY, CARDANO_NETWORK } from "./constants";
  * `.message`, so `e?.message` alone silently collapses to "undefined" and
  * we lose the real reason. This pulls out whatever text is actually there.
  */
-function describeWalletError(e: any): string | null {
+export function describeWalletError(e: any): string | null {
   if (!e) return null;
   if (typeof e === "string") return e;
   if (typeof e?.message === "string" && e.message) return e.message;
