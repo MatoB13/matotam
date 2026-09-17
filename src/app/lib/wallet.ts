@@ -1,6 +1,20 @@
 import { BLOCKFROST_API, BLOCKFROST_KEY, CARDANO_NETWORK } from "./constants";
 
 /**
+ * CIP-30 wallets reject with `{ code, info }`, not a native Error with
+ * `.message`, so `e?.message` alone silently collapses to "undefined" and
+ * we lose the real reason. This pulls out whatever text is actually there.
+ */
+function describeWalletError(e: any): string | null {
+  if (!e) return null;
+  if (typeof e === "string") return e;
+  if (typeof e?.message === "string" && e.message) return e.message;
+  if (typeof e?.info === "string" && e.info) return e.info;
+  if (typeof e?.code !== "undefined") return `Wallet error (code ${e.code})`;
+  return null;
+}
+
+/**
  * Detect wallets and show picker or auto-connect when only one wallet exists.
  */
 export async function handleConnectClick(
@@ -73,12 +87,14 @@ export async function connectWithWallet(
     const wallet = cardano[id];
     const api = await wallet.enable();
 
-    const { Lucid, Blockfrost } = await import("lucid-cardano");
+    const { Lucid } = await import("lucid-cardano");
+    const { createPatchedBlockfrostProvider } = await import("./patchedBlockfrost");
 
-    const lucid = await Lucid.new(
-      new Blockfrost(BLOCKFROST_API, BLOCKFROST_KEY),
-      CARDANO_NETWORK
+    const provider = await createPatchedBlockfrostProvider(
+      BLOCKFROST_API,
+      BLOCKFROST_KEY
     );
+    const lucid = await Lucid.new(provider, CARDANO_NETWORK);
 
     lucid.selectWallet(api);
     (window as any).lucid = lucid;
@@ -92,7 +108,7 @@ export async function connectWithWallet(
     setShowWalletPicker(false);
   } catch (e: any) {
     console.error(e);
-    setError(e?.message ?? "Failed to connect wallet.");
+    setError(describeWalletError(e) ?? "Failed to connect wallet.");
   }
 }
 

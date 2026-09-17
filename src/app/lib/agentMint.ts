@@ -62,8 +62,10 @@ export async function sendMatotamMessageOnChain(
     throw new Error("message must not be empty.");
   }
 
-  const { Lucid, Blockfrost } = await import("lucid-cardano");
-  const lucid = await Lucid.new(new Blockfrost(blockfrostApi, blockfrostKey), network);
+  const { Lucid } = await import("lucid-cardano");
+  const { createPatchedBlockfrostProvider } = await import("./patchedBlockfrost");
+  const provider = await createPatchedBlockfrostProvider(blockfrostApi, blockfrostKey);
+  const lucid = await Lucid.new(provider, network);
   lucid.selectWalletFromPrivateKey(senderPrivateKey);
 
   const senderAddr = await lucid.wallet.address();
