@@ -14,10 +14,15 @@ function unauthorized() {
 }
 
 export async function GET(request: NextRequest) {
-  const expectedToken = process.env.DOLZ_DASHBOARD_TOKEN || process.env.STRIKEBOT_DASHBOARD_TOKEN;
+  // Any of the owner's private dashboard tokens unlocks this page.
+  const allowedTokens = [
+    process.env.DOLZ_DASHBOARD_TOKEN,
+    process.env.SENTIMENT_DASHBOARD_TOKEN,
+    process.env.STRIKEBOT_DASHBOARD_TOKEN,
+  ].filter((value): value is string => !!value);
   const token = request.nextUrl.searchParams.get("token");
 
-  if (!expectedToken || !token || token !== expectedToken) {
+  if (!token || !allowedTokens.includes(token)) {
     return unauthorized();
   }
 
