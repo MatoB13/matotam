@@ -114,7 +114,7 @@ export type DolzReport = {
     realizedDolz: number;
     bookUsd: number;
     bookDolz: number;
-    /** Holdings at cost in DOLZ, re-priced at today's DOLZ rate. */
+    /** Estimated holdings value, see markValueUsd. */
     markUsd: number;
     pnlAtMarkUsd: number;
     holdings: number;
@@ -322,6 +322,29 @@ function lookup(table: Record<string, number>, day: string, fallback: number | n
   if (before) return table[before];
   if (after) return table[after];
   return fallback;
+}
+
+/** From this day the DOLZ marketplace prices cards in USDC instead of $DOLZ. */
+const DOLZ_MARKET_USDC_SINCE = "2026-09-23";
+
+function previousDay(day: string): string {
+  return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Estimated USD value of a held card on `day`. While the marketplace priced
+ * cards in $DOLZ, a card keeps its DOLZ purchase price and moves with the DOLZ
+ * rate. Once it switched to USDC, cards bought in the DOLZ era stay at the rate
+ * of the last DOLZ-priced day, and cards bought for USDC keep their USD cost.
+ */
+function markValueUsd(entry: { usd: number; dolz: number; acquired: string }, day: string, prices: PriceBook): number {
+  if (day < DOLZ_MARKET_USDC_SINCE) {
+    const price = lookup(prices.dolz, day, prices.dolzNow);
+    return price ? entry.dolz * price : entry.usd;
+  }
+  if (entry.acquired >= DOLZ_MARKET_USDC_SINCE) return entry.usd;
+  const frozen = lookup(prices.dolz, previousDay(DOLZ_MARKET_USDC_SINCE), prices.dolzNow);
+  return frozen ? entry.dolz * frozen : entry.usd;
 }
 
 async function buildPriceBook(transfers: RawTransfer[]): Promise<PriceBook> {
@@ -685,7 +708,11 @@ export function buildReport(
   const heldList = [...holdings.values()].sort((a, b) => b.costUsd - a.costUsd);
   const bookUsd = heldList.reduce((acc, held) => acc + held.costUsd, 0);
   const bookDolz = heldList.reduce((acc, held) => acc + held.costDolz, 0);
-  const markUsd = prices.dolzNow ? bookDolz * prices.dolzNow : bookUsd;
+  const today = new Date().toISOString().slice(0, 10);
+  const markUsd = heldList.reduce(
+    (acc, held) => acc + markValueUsd({ usd: held.costUsd, dolz: held.costDolz, acquired: dayOf(held.acquiredAt) }, today, prices),
+    0,
+  );
 
   return {
     generatedAt: new Date().toISOString(),
@@ -731,8 +758,8 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
   }
 
   // Replay the per-token book so the daily book value matches the ledger.
-  const book = new Map<string, { usd: number; dolz: number }>();
-  const parked = new Map<string, { usd: number; dolz: number }>();
+  const book = new Map<string, { usd: number; dolz: number; acquired: string }>();
+  const parked = new Map<string, { usd: number; dolz: number; acquired: string }>();
   const state = { investedUsd: 0, proceedsUsd: 0, realizedUsd: 0, investedDolz: 0, proceedsDolz: 0, realizedDolz: 0 };
   const points: DolzDailyPoint[] = [];
 
@@ -748,7 +775,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
         case "buy":
           state.investedUsd += event.usd;
           state.investedDolz += event.dolz;
-          for (const token of event.tokens) book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count });
+          for (const token of event.tokens) book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day });
           break;
         case "transfer-in":
           for (const token of event.tokens) {
@@ -757,7 +784,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
               parked.delete(keyOf(token));
               book.set(keyOf(token), back);
             } else {
-              book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count });
+              book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day });
             }
           }
           break;
@@ -788,9 +815,11 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
 
     let bookUsd = 0;
     let bookDolz = 0;
+    let markUsd = 0;
     for (const entry of book.values()) {
       bookUsd += entry.usd;
       bookDolz += entry.dolz;
+      markUsd += markValueUsd(entry, day, prices);
     }
     const dolzPrice = lookup(prices.dolz, day, prices.dolzNow);
 
@@ -799,7 +828,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
       ...state,
       bookUsd,
       bookDolz,
-      markUsd: dolzPrice ? bookDolz * dolzPrice : bookUsd,
+      markUsd,
       holdings: book.size,
       dolzPrice,
     });

@@ -408,7 +408,7 @@ export default function DolzDashboard({ token }: { token: string }) {
   const valueSeries: LineSeries[] = useMemo(
     () => [
       { key: "book", label: "Nákladová hodnota", color: SERIES_A, values: daily.map((p) => p.bookUsd) },
-      { key: "mark", label: "Odhad (DOLZ × aktuálny kurz)", color: SERIES_B, values: daily.map((p) => p.markUsd) },
+      { key: "mark", label: "Odhad trhovej hodnoty", color: SERIES_B, values: daily.map((p) => p.markUsd) },
     ],
     [daily],
   );
@@ -517,7 +517,7 @@ export default function DolzDashboard({ token }: { token: string }) {
             <MetricCard
               label="Odhad hodnoty držby"
               value={formatUsd(totals.markUsd)}
-              detail="DOLZ nákupné ceny × dnešný kurz"
+              detail="DOLZ ceny × kurz, od prechodu na USDC zafixované"
             />
             <MetricCard
               label="Celkový PnL (odhad)"
@@ -542,7 +542,7 @@ export default function DolzDashboard({ token }: { token: string }) {
               unit={unit}
               formatValue={fmt}
               note={isUsd
-                ? "PnL pri odhade = predaje − investície + hodnota držby (DOLZ nákupné ceny prepočítané kurzom DOLZ v daný deň)."
+                ? "PnL pri odhade = predaje − investície + odhad hodnoty držby. Do 22. 9. sa karty hýbu s kurzom DOLZ, od prechodu marketu na USDC (23. 9.) držia kurz z 22. 9."
                 : "V DOLZ: predaje − investície + držba v nákupných cenách. Realizovaný = predaje mínus ich nákupná cena."}
             />
             <LineChart title="Počet NFT v držbe" dates={dates} series={holdingsSeries} unit="dolz" formatValue={(value) => `${Math.round(value)} ks`} />
@@ -559,7 +559,7 @@ export default function DolzDashboard({ token }: { token: string }) {
               series={valueSeries}
               unit="usd"
               formatValue={(value) => formatUsd(value)}
-              note="Nákladová hodnota = koľko si za držané NFT zaplatil. Odhad predpokladá, že NFT drží svoju cenu v DOLZ."
+              note="Nákladová hodnota = koľko si za držané NFT zaplatil. Odhad: DOLZ nákupná cena × kurz DOLZ, od 23. 9. (market v USDC) zafixovaný na kurze z 22. 9.; karty kúpené za USDC v nákupnej cene."
             />
             <LineChart
               title="Kurz DOLZ"
