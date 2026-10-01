@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDolzReport } from "@/app/lib/dolzPortfolio";
 
@@ -5,6 +6,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 120;
+
+// SHA-256 of the owner's DOLZ dashboard token. The repo is public, so only the
+// hash lives here; the token itself was handed to the owner directly.
+const OWNER_TOKEN_SHA256 = "4743035dfd2a43e9bedb9fa13478798113e60e6ca4c86f20fe7367ef7b6abcf0";
 
 function unauthorized() {
   return NextResponse.json(
@@ -22,7 +27,9 @@ export async function GET(request: NextRequest) {
   ].filter((value): value is string => !!value);
   const token = request.nextUrl.searchParams.get("token");
 
-  if (!token || !allowedTokens.includes(token)) {
+  const matchesOwnerToken = !!token && createHash("sha256").update(token).digest("hex") === OWNER_TOKEN_SHA256;
+
+  if (!token || !(matchesOwnerToken || allowedTokens.includes(token))) {
     return unauthorized();
   }
 
