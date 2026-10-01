@@ -2,7 +2,7 @@
 
 import { PointerEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
-import type { DolzChannel, DolzEvent, DolzReport } from "@/app/lib/dolzPortfolio";
+import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/dolzPortfolio";
 
 type ApiResponse = { ok: boolean; data?: DolzReport; error?: string };
 type Unit = "usd" | "dolz";
@@ -28,6 +28,14 @@ const DOLZ_CHANNEL_LABELS: Record<DolzChannel, string> = {
 const CHANNEL_ORDER: DolzChannel[] = ["card", "dolz-market", "auction", "opensea", "mint", "free"];
 const SERIES_A = "#3987e5";
 const SERIES_B = "#d95926";
+
+const VALUE_SOURCE_LABELS: Record<DolzHolding["valueSource"], string> = {
+  "card-usdc": "predaje karty (USDC)",
+  "card-dolz": "predaje karty (DOLZ éra)",
+  "season-tier": "sezóna + tier",
+  tier: "rovnaký tier",
+  cost: "bez predajov – nákupná cena",
+};
 
 const EVENT_LABELS: Record<DolzEvent["type"], string> = {
   buy: "Nákup",
@@ -435,17 +443,48 @@ export default function DolzDashboard({ token }: { token: string }) {
     [monthly, isUsd],
   );
 
+  // One row per card and rarity tier: that is the level the market prices at.
   const positions = useMemo(() => {
-    const groups = new Map<string, { name: string; count: number; costUsd: number; costDolz: number }>();
+    type Position = {
+      key: string;
+      name: string;
+      card: string | null;
+      tier: string | null;
+      rarity: string | null;
+      serials: string[];
+      count: number;
+      costUsd: number;
+      costDolz: number;
+      valueUsd: number;
+      source: DolzHolding["valueSource"];
+      sales: number;
+    };
+    const groups = new Map<string, Position>();
     for (const holding of data?.holdings ?? []) {
       const name = holding.name?.trim() || `${holding.collection} #${holding.id}`;
-      const entry = groups.get(name) ?? { name, count: 0, costUsd: 0, costDolz: 0 };
+      const key = `${name}|${holding.tier ?? ""}`;
+      const entry = groups.get(key) ?? {
+        key,
+        name,
+        card: holding.card,
+        tier: holding.tier,
+        rarity: holding.rarity && holding.rarity !== "Not revealed" ? holding.rarity : null,
+        serials: [],
+        count: 0,
+        costUsd: 0,
+        costDolz: 0,
+        valueUsd: 0,
+        source: holding.valueSource,
+        sales: holding.valueSales,
+      };
       entry.count += 1;
       entry.costUsd += holding.costUsd;
       entry.costDolz += holding.costDolz;
-      groups.set(name, entry);
+      entry.valueUsd += holding.valueUsd;
+      if (holding.serial) entry.serials.push(holding.serial);
+      groups.set(key, entry);
     }
-    return [...groups.values()].sort((a, b) => b.costUsd - a.costUsd);
+    return [...groups.values()].sort((a, b) => b.valueUsd - a.valueUsd);
   }, [data]);
 
   const sales = useMemo(() => (data?.events ?? []).filter((event) => event.type === "sell"), [data]);
@@ -517,7 +556,7 @@ export default function DolzDashboard({ token }: { token: string }) {
             <MetricCard
               label="Odhad hodnoty držby"
               value={formatUsd(totals.markUsd)}
-              detail="DOLZ ceny × kurz, od prechodu na USDC zafixované"
+              detail={`${totals.valuationSources["card-usdc"] + totals.valuationSources["card-dolz"]} z ${totals.holdings} kariet podľa reálnych predajov`}
             />
             <MetricCard
               label="Celkový PnL (odhad)"
@@ -542,7 +581,7 @@ export default function DolzDashboard({ token }: { token: string }) {
               unit={unit}
               formatValue={fmt}
               note={isUsd
-                ? "PnL pri odhade = predaje − investície + odhad hodnoty držby. Do 22. 9. sa karty hýbu s kurzom DOLZ, od prechodu marketu na USDC (23. 9.) držia kurz z 22. 9."
+                ? "PnL pri odhade = predaje − investície + odhad hodnoty držby. Do 22. 9. sa karty hýbu s kurzom DOLZ, od prechodu marketu na USDC (23. 9.) podľa mediánu predajov rovnakej karty a rarity na DOLZ markete."
                 : "V DOLZ: predaje − investície + držba v nákupných cenách. Realizovaný = predaje mínus ich nákupná cena."}
             />
             <LineChart title="Počet NFT v držbe" dates={dates} series={holdingsSeries} unit="dolz" formatValue={(value) => `${Math.round(value)} ks`} />
@@ -559,7 +598,7 @@ export default function DolzDashboard({ token }: { token: string }) {
               series={valueSeries}
               unit="usd"
               formatValue={(value) => formatUsd(value)}
-              note="Nákladová hodnota = koľko si za držané NFT zaplatil. Odhad: DOLZ nákupná cena × kurz DOLZ, od 23. 9. (market v USDC) zafixovaný na kurze z 22. 9.; karty kúpené za USDC v nákupnej cene."
+              note="Nákladová hodnota = koľko si za držané NFT zaplatil. Trhová hodnota od 23. 9. = medián predajov rovnakej karty v rovnakom rarity tieri na DOLZ markete; predtým nákupná cena v DOLZ × kurz DOLZ."
             />
             <LineChart
               title="Kurz DOLZ"
@@ -614,72 +653,97 @@ export default function DolzDashboard({ token }: { token: string }) {
             ) : null}
           </section>
 
-          <section className={styles.twoColumn}>
-            <div className={styles.panelFull}>
-              <div className={styles.panelTitleRow}>
-                <h2>Predaje</h2>
-                <span>{sales.length} transakcií</span>
-              </div>
-              <div className={styles.tableWrap}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Dátum</th>
-                      <th>NFT</th>
-                      <th>Kanál</th>
-                      <th className={styles.num}>Predaj</th>
-                      <th className={styles.num}>PnL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sales.length === 0 ? (
-                      <tr><td colSpan={5} className={styles.emptyCell}>Zatiaľ žiadne predaje.</td></tr>
-                    ) : sales.map((event) => (
-                      <tr key={event.hash}>
-                        <td>{formatDate(event.ts)}</td>
-                        <td>{event.tokens.map((token) => token.name?.trim() || `#${token.id}`).join(", ")}</td>
-                        <td>{DOLZ_CHANNEL_LABELS[event.channel]}</td>
-                        <td className={styles.num}>{valueOf(event.usd, event.dolz)}</td>
-                        <td className={`${styles.num} ${pnlClass(isUsd ? event.realizedUsd : event.realizedDolz) ?? ""}`}>
-                          {valueOf(event.realizedUsd ?? 0, event.realizedDolz ?? 0)}
-                          {event.unknownBasis ? <small className={styles.mutedText} title="Nákup tohto NFT chýba v indexovanej histórii, nákupná cena braná ako 0."> *</small> : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {sales.some((event) => event.unknownBasis) ? (
-                <p className={styles.chartNote}>* nákup tohto NFT chýba v histórii Blockscoutu, PnL ráta s nákupnou cenou 0.</p>
-              ) : null}
+          <div className={styles.panelFull}>
+            <div className={styles.panelTitleRow}>
+              <h2>Predaje</h2>
+              <span>{sales.length} transakcií</span>
             </div>
+            <div className={styles.tableWrap}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dátum</th>
+                    <th>NFT</th>
+                    <th>Kanál</th>
+                    <th className={styles.num}>Predaj</th>
+                    <th className={styles.num}>PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.length === 0 ? (
+                    <tr><td colSpan={5} className={styles.emptyCell}>Zatiaľ žiadne predaje.</td></tr>
+                  ) : sales.map((event) => (
+                    <tr key={event.hash}>
+                      <td>{formatDate(event.ts)}</td>
+                      <td>{event.tokens.map((token) => token.name?.trim() || `#${token.id}`).join(", ")}</td>
+                      <td>{DOLZ_CHANNEL_LABELS[event.channel]}</td>
+                      <td className={styles.num}>{valueOf(event.usd, event.dolz)}</td>
+                      <td className={`${styles.num} ${pnlClass(isUsd ? event.realizedUsd : event.realizedDolz) ?? ""}`}>
+                        {valueOf(event.realizedUsd ?? 0, event.realizedDolz ?? 0)}
+                        {event.unknownBasis ? <small className={styles.mutedText} title="Nákup tohto NFT chýba v indexovanej histórii, nákupná cena braná ako 0."> *</small> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {sales.some((event) => event.unknownBasis) ? (
+              <p className={styles.chartNote}>* nákup tohto NFT chýba v histórii Blockscoutu, PnL ráta s nákupnou cenou 0.</p>
+            ) : null}
+          </div>
 
-            <div className={styles.panelFull}>
-              <div className={styles.panelTitleRow}>
-                <h2>Najväčšie pozície</h2>
-                <span>{positions.length} rôznych kariet</span>
-              </div>
-              <div className={`${styles.tableWrap} ${styles.scrollBox}`}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Karta</th>
-                      <th className={styles.num}>Ks</th>
-                      <th className={styles.num}>Nákupná cena</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map((position) => (
-                      <tr key={position.name}>
-                        <td>{position.name}</td>
-                        <td className={styles.num}>{position.count}</td>
-                        <td className={styles.num}>{valueOf(position.costUsd, position.costDolz)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+
+          <section className={styles.panelFull}>
+            <div className={styles.panelTitleRow}>
+              <h2>Pozície a trhová hodnota</h2>
+              <span>
+                {positions.length} kariet · {data?.totals.marketSalesSinceSwitch ?? 0} predajov na DOLZ markete od 23. 9.
+                {data?.totals.marketLatestSale ? ` · posledný ${formatDate(data.totals.marketLatestSale)}` : ""}
+              </span>
             </div>
+            <div className={`${styles.tableWrap} ${styles.scrollBox}`}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Karta</th>
+                    <th>Rarita</th>
+                    <th className={styles.num}>Ks</th>
+                    <th className={styles.num}>Nákupná cena</th>
+                    <th className={styles.num}>Trhová hodnota</th>
+                    <th className={styles.num}>Rozdiel</th>
+                    <th>Ocenenie podľa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((position) => (
+                    <tr key={position.key}>
+                      <td>
+                        {position.name}
+                        {position.card ? <small className={styles.mutedText}> · {position.card}</small> : null}
+                      </td>
+                      <td>
+                        {[position.rarity, position.tier ? `/${position.tier}` : null].filter(Boolean).join(" ") || "—"}
+                        {position.serials.length ? (
+                          <small className={styles.mutedText}> · #{position.serials.slice(0, 4).join(", #")}{position.serials.length > 4 ? "…" : ""}</small>
+                        ) : null}
+                      </td>
+                      <td className={styles.num}>{position.count}</td>
+                      <td className={styles.num}>{formatUsd(position.costUsd)}</td>
+                      <td className={styles.num}>{formatUsd(position.valueUsd)}</td>
+                      <td className={`${styles.num} ${pnlClass(position.valueUsd - position.costUsd) ?? ""}`}>{formatUsd(position.valueUsd - position.costUsd)}</td>
+                      <td className={styles.mutedText}>
+                        {VALUE_SOURCE_LABELS[position.source]}
+                        {position.sales ? ` (${position.sales})` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className={styles.chartNote}>
+              Trhová hodnota = medián reálnych predajov rovnakej karty v rovnakom rarity tieri (číslo za lomkou je počet kusov v tieri). V zátvorke je počet predajov, z ktorých je medián.
+              Sériové číslo v rámci tieru (napr. #1) môže cenu zvýšiť, s tým odhad nepočíta.
+            </p>
           </section>
 
           <section className={styles.panelFull}>

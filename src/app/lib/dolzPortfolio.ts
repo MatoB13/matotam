@@ -6,9 +6,9 @@
 // USD values use the DOLZ/USDT0 and USDC/WETH Uniswap pools on Polygon,
 // seeded from dolzPriceSeed and topped up for newer days at request time.
 
+import { blockscout } from "./blockscout";
+import { buildMarketBook, DOLZ_MARKET_USDC_SINCE, DOLZ_NFT, type MarketBook, type ValuationSource } from "./dolzMarket";
 import { DOLZ_PRICE_SEED, ETH_PRICE_SEED } from "./dolzPriceSeed";
-
-const BLOCKSCOUT = "https://polygon.blockscout.com/api/v2";
 
 /** Main wallet plus the DOLZ-app smart account (Kernel) that card mints land in. */
 export const DEFAULT_DOLZ_WALLETS = [
@@ -42,7 +42,7 @@ export type DolzEvent = {
   ts: string;
   type: DolzEventType;
   channel: DolzChannel;
-  tokens: { id: string; collection: string; name: string | null }[];
+  tokens: { id: string; token: string; collection: string; name: string | null }[];
   /** Positive amounts; direction follows from `type`. */
   usd: number;
   dolz: number;
@@ -62,6 +62,15 @@ export type DolzHolding = {
   channel: DolzChannel;
   costUsd: number;
   costDolz: number;
+  token: string;
+  card: string | null;
+  tier: string | null;
+  rarity: string | null;
+  serial: string | null;
+  /** Estimated value today and how it was derived. */
+  valueUsd: number;
+  valueSource: ValuationSource | "cost";
+  valueSales: number;
 };
 
 export type DolzDailyPoint = {
@@ -125,6 +134,9 @@ export type DolzReport = {
     unallocatedAuctionUsd: number;
     unallocatedAuctionDolz: number;
     firstActivity: string | null;
+    valuationSources: Record<ValuationSource | "cost", number>;
+    marketSalesSinceSwitch: number;
+    marketLatestSale: string | null;
   };
   channels: DolzChannelSummary[];
   daily: DolzDailyPoint[];
@@ -174,34 +186,6 @@ type BlockscoutTransfer = {
   token: { address_hash: string; name: string | null; type: string; decimals: string | null };
   total: { value?: string; decimals?: string | null; token_id?: string; token_instance?: { metadata?: { name?: string } | null } | null } | null;
 };
-
-const apiKey = process.env.BLOCKSCOUT_API_KEY;
-
-async function blockscout<T>(path: string, revalidate: number | false): Promise<T> {
-  const url = `${BLOCKSCOUT}${path}${apiKey ? `${path.includes("?") ? "&" : "?"}apikey=${apiKey}` : ""}`;
-  let lastError: unknown = null;
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        headers: { accept: "application/json" },
-        ...(revalidate === false ? { cache: "force-cache" as const } : { next: { revalidate } }),
-      });
-      if (response.status === 429 || response.status >= 500) {
-        lastError = new Error(`Blockscout ${response.status} for ${path}`);
-        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
-        continue;
-      }
-      if (!response.ok) throw new Error(`Blockscout ${response.status} for ${path}`);
-      return (await response.json()) as T;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(`Blockscout request failed: ${path}`);
-}
 
 export async function fetchWalletTransfers(wallet: string): Promise<RawTransfer[]> {
   const out: RawTransfer[] = [];
@@ -324,24 +308,27 @@ function lookup(table: Record<string, number>, day: string, fallback: number | n
   return fallback;
 }
 
-/** From this day the DOLZ marketplace prices cards in USDC instead of $DOLZ. */
-const DOLZ_MARKET_USDC_SINCE = "2026-09-23";
-
 function previousDay(day: string): string {
   return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
 }
 
+type MarkEntry = { usd: number; dolz: number; acquired: string; token: string; id: string };
+
 /**
  * Estimated USD value of a held card on `day`. While the marketplace priced
  * cards in $DOLZ, a card keeps its DOLZ purchase price and moves with the DOLZ
- * rate. Once it switched to USDC, cards bought in the DOLZ era stay at the rate
- * of the last DOLZ-priced day, and cards bought for USDC keep their USD cost.
+ * rate. Since the switch to USDC, cards are valued at the median of real
+ * marketplace sales of the same card and rarity tier (see dolzMarket); cards
+ * without market data fall back to the 2026-09-22 DOLZ rate (DOLZ-era buys) or
+ * their USD cost (USDC buys).
  */
-function markValueUsd(entry: { usd: number; dolz: number; acquired: string }, day: string, prices: PriceBook): number {
+function markValueUsd(entry: MarkEntry, day: string, prices: PriceBook, market: MarketBook | null): number {
   if (day < DOLZ_MARKET_USDC_SINCE) {
     const price = lookup(prices.dolz, day, prices.dolzNow);
     return price ? entry.dolz * price : entry.usd;
   }
+  const fromMarket = market && entry.token === DOLZ_NFT ? market.value(entry.id) : null;
+  if (fromMarket) return fromMarket.usd;
   if (entry.acquired >= DOLZ_MARKET_USDC_SINCE) return entry.usd;
   const frozen = lookup(prices.dolz, previousDay(DOLZ_MARKET_USDC_SINCE), prices.dolzNow);
   return frozen ? entry.dolz * frozen : entry.usd;
@@ -465,6 +452,7 @@ export function buildReport(
   details: Map<string, RawTxDetail>,
   prices: PriceBook,
   wallets: string[],
+  market: MarketBook | null = null,
 ): DolzReport {
   const groups = groupTransfers(transfers, wallets);
 
@@ -546,7 +534,7 @@ export function buildReport(
     transferredOut: 0,
   };
 
-  const tokenRef = (transfer: RawTransfer) => ({ id: transfer.tokenId ?? "?", collection: collectionLabel(transfer), name: transfer.nftName });
+  const tokenRef = (transfer: RawTransfer) => ({ id: transfer.tokenId ?? "?", token: transfer.token, collection: collectionLabel(transfer), name: transfer.nftName });
 
   const acquire = (group: TxGroup, channel: DolzChannel, usd: number, dolz: number, paidWith: string | null, type: DolzEventType = "buy") => {
     const count = group.nftIn.length;
@@ -558,6 +546,7 @@ export function buildReport(
         holdings.set(key, back);
         continue;
       }
+      const meta = transfer.token === DOLZ_NFT && transfer.tokenId ? market?.meta.get(transfer.tokenId) : undefined;
       holdings.set(key, {
         id: transfer.tokenId ?? "?",
         collection: collectionLabel(transfer),
@@ -566,6 +555,14 @@ export function buildReport(
         channel,
         costUsd: usd / count,
         costDolz: dolz / count,
+        token: transfer.token,
+        card: meta?.card ?? null,
+        tier: meta?.tier ?? null,
+        rarity: meta?.rarity ?? null,
+        serial: meta?.serial ?? null,
+        valueUsd: 0,
+        valueSource: "cost",
+        valueSales: 0,
       });
       totals.acquired += 1;
     }
@@ -705,14 +702,24 @@ export function buildReport(
   totals.realizedDolz -= unallocatedAuctionDolz;
   totals.transferredOut = parked.size;
 
-  const heldList = [...holdings.values()].sort((a, b) => b.costUsd - a.costUsd);
+  const today = new Date().toISOString().slice(0, 10);
+  const valuationSources: Record<ValuationSource | "cost", number> = { "card-usdc": 0, "card-dolz": 0, "season-tier": 0, tier: 0, cost: 0 };
+  for (const held of holdings.values()) {
+    const fromMarket = market && held.token === DOLZ_NFT ? market.value(held.id) : null;
+    held.valueUsd = markValueUsd(
+      { usd: held.costUsd, dolz: held.costDolz, acquired: dayOf(held.acquiredAt), token: held.token, id: held.id },
+      today,
+      prices,
+      market,
+    );
+    held.valueSource = fromMarket?.source ?? "cost";
+    held.valueSales = fromMarket?.sales ?? 0;
+    valuationSources[held.valueSource] += 1;
+  }
+  const heldList = [...holdings.values()].sort((a, b) => b.valueUsd - a.valueUsd);
   const bookUsd = heldList.reduce((acc, held) => acc + held.costUsd, 0);
   const bookDolz = heldList.reduce((acc, held) => acc + held.costDolz, 0);
-  const today = new Date().toISOString().slice(0, 10);
-  const markUsd = heldList.reduce(
-    (acc, held) => acc + markValueUsd({ usd: held.costUsd, dolz: held.costDolz, acquired: dayOf(held.acquiredAt) }, today, prices),
-    0,
-  );
+  const markUsd = heldList.reduce((acc, held) => acc + held.valueUsd, 0);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -739,16 +746,19 @@ export function buildReport(
       unallocatedAuctionUsd,
       unallocatedAuctionDolz,
       firstActivity: events[0]?.ts ?? null,
+      valuationSources,
+      marketSalesSinceSwitch: market?.salesSinceSwitch ?? 0,
+      marketLatestSale: market?.latestSale ?? null,
     },
     channels: [...channels.values()].sort((a, b) => b.spentUsd - a.spentUsd),
-    daily: buildDaily(events, prices),
+    daily: buildDaily(events, prices, market),
     monthly: buildMonthly(events),
     events: [...events].reverse(),
     holdings: heldList,
   };
 }
 
-function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
+function buildDaily(events: DolzEvent[], prices: PriceBook, market: MarketBook | null): DolzDailyPoint[] {
   if (!events.length) return [];
 
   const byDay = new Map<string, DolzEvent[]>();
@@ -758,8 +768,8 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
   }
 
   // Replay the per-token book so the daily book value matches the ledger.
-  const book = new Map<string, { usd: number; dolz: number; acquired: string }>();
-  const parked = new Map<string, { usd: number; dolz: number; acquired: string }>();
+  const book = new Map<string, MarkEntry>();
+  const parked = new Map<string, MarkEntry>();
   const state = { investedUsd: 0, proceedsUsd: 0, realizedUsd: 0, investedDolz: 0, proceedsDolz: 0, realizedDolz: 0 };
   const points: DolzDailyPoint[] = [];
 
@@ -775,7 +785,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
         case "buy":
           state.investedUsd += event.usd;
           state.investedDolz += event.dolz;
-          for (const token of event.tokens) book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day });
+          for (const token of event.tokens) book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day, token: token.token, id: token.id });
           break;
         case "transfer-in":
           for (const token of event.tokens) {
@@ -784,7 +794,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
               parked.delete(keyOf(token));
               book.set(keyOf(token), back);
             } else {
-              book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day });
+              book.set(keyOf(token), { usd: event.usd / count, dolz: event.dolz / count, acquired: day, token: token.token, id: token.id });
             }
           }
           break;
@@ -819,7 +829,7 @@ function buildDaily(events: DolzEvent[], prices: PriceBook): DolzDailyPoint[] {
     for (const entry of book.values()) {
       bookUsd += entry.usd;
       bookDolz += entry.dolz;
-      markUsd += markValueUsd(entry, day, prices);
+      markUsd += markValueUsd(entry, day, prices, market);
     }
     const dolzPrice = lookup(prices.dolz, day, prices.dolzNow);
 
@@ -889,5 +899,7 @@ export async function getDolzReport(wallets = configuredDolzWallets()): Promise<
   }
 
   const prices = await buildPriceBook(transfers);
-  return buildReport(transfers, details, prices, wallets);
+  const ownTokenIds = [...new Set(transfers.filter((t) => t.token === DOLZ_NFT && t.tokenId).map((t) => t.tokenId as string))];
+  const market = await buildMarketBook((day) => lookup(prices.dolz, day, prices.dolzNow), ownTokenIds).catch(() => null);
+  return buildReport(transfers, details, prices, wallets, market);
 }
