@@ -5,22 +5,27 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Test eth_getLogs limits on public Polygon RPCs
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the DOLZ report with gap filling
         run: |
-          WP=000000000000000000000000a4cd3de07dafa3f700c908043118b39547190143
-          T=0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
-          ADDRS='["0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc","0x1763bfe8c14f0cc3f7f462a9e19e57578f334dc3","0x7906fddf30af0d1379ab7ec8feb2fb539e30196b","0x6ab4e20f36ca48b61ecd66c0450fdf665fa130be","0x3c499c542cef5e3811e1192ce70d8cc03d5c3359","0xc2132d05d31c914a87c6611c10748aeb04b58e8f","0x7ceb23fd6bc0add59e62ac25578270cff1b9f619","0x2791bca1f2de4661ed88a30c99a7a9449aa84174"]'
-          for r in https://polygon-bor-rpc.publicnode.com https://polygon.drpc.org https://1rpc.io/matic https://polygon.gateway.tenderly.co; do
-            for span in full 2000000 100000 10000; do
-              if [ $span = full ]; then FROM=0x45F1E00; else FROM=$(printf '0x%x' $((95000000-span))); fi
-              BODY="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getLogs\",\"params\":[{\"address\":$ADDRS,\"fromBlock\":\"$FROM\",\"toBlock\":\"latest\",\"topics\":[\"$T\",null,\"0x$WP\"]}]}"
-              OUT=$(curl -s -m 60 -X POST $r -H 'content-type: application/json' -d "$BODY")
-              echo "$r span=$span -> $(echo "$OUT" | python3 -c 'import json,sys
-          try:
-              d=json.load(sys.stdin); r=d.get("result")
-              print(("logs %d" % len(r)) if isinstance(r,list) else ("ERR "+json.dumps(d.get("error"))[:160]))
-          except Exception as e: print("bad", e)')"
-            done
-          done
-          echo "== batch support"
-          curl -s -m 30 -X POST https://polygon-bor-rpc.publicnode.com -H 'content-type: application/json' -d '[{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber"},{"jsonrpc":"2.0","id":2,"method":"eth_blockNumber"}]'; echo
+          mkdir -p /tmp/h && cp src/app/lib/{dolzPortfolio,dolzMarket,dolzMarketSeed,dolzPriceSeed,blockscout,polygonRpc}.ts /tmp/h/
+          cd /tmp/h && sed -i -E 's#from "\./(dolzMarket|dolzMarketSeed|dolzPriceSeed|blockscout|polygonRpc)"#from "./\1.ts"#' *.ts
+          cat > run.ts <<'TS'
+          import { getDolzReport, fetchWalletTransfers, fillIndexGaps, DEFAULT_DOLZ_WALLETS } from "./dolzPortfolio.ts";
+          const indexed = (await Promise.all(DEFAULT_DOLZ_WALLETS.map((w) => fetchWalletTransfers(w)))).flat();
+          const gaps = await fillIndexGaps(indexed, DEFAULT_DOLZ_WALLETS);
+          console.log("indexed transfers", indexed.length, "added from chain", gaps.added.length, "tx details", gaps.details.length);
+          const nft = gaps.added.filter((t) => t.tokenId);
+          console.log("added NFT transfers", nft.length, nft.slice(0, 60).map((t) => `${t.ts.slice(0, 10)} #${t.tokenId} ${t.from.slice(0, 8)}>${t.to.slice(0, 8)} ${t.method}`).join("\n"));
+          const r = await getDolzReport();
+          const t = r.totals;
+          const f = (n: number) => Math.round(n);
+          console.log(JSON.stringify({ invested: f(t.investedUsd), proceeds: f(t.proceedsUsd), realized: f(t.realizedUsd), book: f(t.bookUsd), mark: f(t.markUsd), pnl: f(t.pnlAtMarkUsd), holdings: t.holdings, acquired: t.acquired, sold: t.sold, sources: t.valuationSources }));
+          console.log("DolzNFT held", r.holdings.filter((h) => h.collection === "DolzNFT").length, "other", r.holdings.filter((h) => h.collection !== "DolzNFT").length);
+          console.log(r.events.filter((e) => e.tokens.some((x) => x.id === "251")).map((e) => `${e.ts.slice(0, 10)} ${e.type} ${e.paidWith} ${Math.round(e.usd)}`).join("\n"));
+          console.log(r.channels.map((c) => `${c.channel} bought ${c.bought} spent ${Math.round(c.spentUsd)} sold ${c.sold} proceeds ${Math.round(c.proceedsUsd)}`).join("\n"));
+          TS
+          node run.ts

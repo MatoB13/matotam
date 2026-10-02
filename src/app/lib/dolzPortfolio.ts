@@ -7,6 +7,7 @@
 // seeded from dolzPriceSeed and topped up for newer days at request time.
 
 import { blockscout } from "./blockscout";
+import { fetchTransferLogs, polygonRpc, type RpcBlock, type RpcLog, type RpcTransaction } from "./polygonRpc";
 import { buildMarketBook, DOLZ_MARKET_USDC_SINCE, DOLZ_NFT, type MarketBook, type ValuationSource } from "./dolzMarket";
 import { DOLZ_PRICE_SEED, ETH_PRICE_SEED } from "./dolzPriceSeed";
 
@@ -388,8 +389,11 @@ function amountOf(transfer: RawTransfer): number {
   return Number(transfer.value) / 10 ** transfer.decimals;
 }
 
+// Seaport selectors, for transactions whose method name is not decoded.
+const SEAPORT_SELECTORS = ["0x00000000", "0xfb0f3ee1", "0xb3a34c4c", "0xe7acab24", "0x87201b41", "0xed98a574", "0xa8174404", "0xf2d12b12"];
+
 function isOpenSeaMethod(method: string | null): boolean {
-  return !!method && /^(fulfill|match)/i.test(method);
+  return !!method && (/^(fulfill|match)/i.test(method) || SEAPORT_SELECTORS.includes(method.toLowerCase()));
 }
 
 function isMintMethod(method: string | null): boolean {
@@ -463,7 +467,13 @@ const MANUAL_TRANSFERS: RawTransfer[] = [
 
 export function groupTransfers(rawTransfers: RawTransfer[], wallets: string[]): TxGroup[] {
   const own = new Set(wallets.map((wallet) => wallet.toLowerCase()));
-  const transfers = own.has(MAIN_WALLET) ? [...rawTransfers, ...MANUAL_TRANSFERS] : rawTransfers;
+  // A manual entry is only a stand-in: drop it once the real transfer is found.
+  const manual = MANUAL_TRANSFERS.filter((entry) => {
+    if (!own.has(MAIN_WALLET)) return false;
+    const nft = MANUAL_TRANSFERS.find((candidate) => candidate.hash === entry.hash && candidate.tokenId);
+    return !rawTransfers.some((transfer) => transfer.token === nft?.token && transfer.tokenId === nft?.tokenId && transfer.to === MAIN_WALLET);
+  });
+  const transfers = [...rawTransfers, ...manual];
   const seen = new Set<string>();
   const groups = new Map<string, TxGroup>();
 
@@ -937,12 +947,124 @@ export function configuredDolzWallets(): string[] {
   return fromEnv.length ? fromEnv : DEFAULT_DOLZ_WALLETS;
 }
 
+// DOLZ NFT collections seen on the tracked wallets.
+const DOLZ_NFT_CONTRACTS: Record<string, string> = {
+  "0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc": "DolzNFT",
+  "0x1763bfe8c14f0cc3f7f462a9e19e57578f334dc3": "DOLZ x iStripper",
+  "0x7906fddf30af0d1379ab7ec8feb2fb539e30196b": "DOLZ x iStripper",
+};
+const GAP_FILL_FROM_BLOCK = 70_000_000; // well before the first DOLZ activity (July 2025)
+
+function decodeProxyInput(input: string): Pick<RawTxDetail, "proxyCoin" | "proxyAmount"> {
+  if (!input.startsWith(PROXY_SELECTOR) || input.length < 10 + 64 * 3) return { proxyCoin: null, proxyAmount: null };
+  return {
+    proxyCoin: `0x${input.slice(10 + 24, 10 + 64)}`.toLowerCase(),
+    proxyAmount: BigInt(`0x${input.slice(10 + 128, 10 + 192)}`).toString(),
+  };
+}
+
+async function fetchNftName(token: string, tokenId: string): Promise<string | null> {
+  const data = await blockscout<{ metadata: { name?: string } | null }>(`/tokens/${token}/instances/${tokenId}`, false).catch(() => null);
+  return data?.metadata?.name ?? null;
+}
+
+/**
+ * Blockscout's Polygon index skips some blocks, so transfers in them are
+ * missing. Read the wallets' Transfer logs straight from the chain and add
+ * whatever Blockscout lacks, with the transaction details needed to classify it.
+ */
+export async function fillIndexGaps(transfers: RawTransfer[], wallets: string[]): Promise<{ added: RawTransfer[]; details: RawTxDetail[] }> {
+  const known = new Set(transfers.map((transfer) => `${transfer.hash}:${transfer.logIndex}`));
+  const contracts = [...Object.keys(DOLZ_NFT_CONTRACTS), ...Object.keys(PAYMENT_TOKENS)];
+
+  const logs: RpcLog[] = [];
+  for (const wallet of wallets) {
+    for (const direction of ["in", "out"] as const) {
+      logs.push(...(await fetchTransferLogs(contracts, wallet, direction, GAP_FILL_FROM_BLOCK)));
+    }
+  }
+
+  const missing = new Map<string, RpcLog>();
+  for (const log of logs) {
+    const key = `${log.transactionHash.toLowerCase()}:${parseInt(log.logIndex, 16)}`;
+    if (!known.has(key)) missing.set(key, log);
+  }
+  if (!missing.size) return { added: [], details: [] };
+
+  const hashes = [...new Set([...missing.values()].map((log) => log.transactionHash.toLowerCase()))];
+  const txs = new Map<string, RpcTransaction>();
+  const blockTimes = new Map<string, string>();
+  for (let index = 0; index < hashes.length; index += 4) {
+    await Promise.all(
+      hashes.slice(index, index + 4).map(async (hash) => {
+        const tx = await polygonRpc<RpcTransaction | null>("eth_getTransactionByHash", [hash], true).catch(() => null);
+        if (!tx) return;
+        txs.set(hash, tx);
+        if (!blockTimes.has(tx.blockNumber)) {
+          const block = await polygonRpc<RpcBlock | null>("eth_getBlockByNumber", [tx.blockNumber, false], true).catch(() => null);
+          if (block) blockTimes.set(tx.blockNumber, new Date(parseInt(block.timestamp, 16) * 1000).toISOString().replace("Z", "000Z"));
+        }
+      }),
+    );
+  }
+
+  const added: RawTransfer[] = [];
+  for (const log of missing.values()) {
+    const hash = log.transactionHash.toLowerCase();
+    const tx = txs.get(hash);
+    const ts = tx ? blockTimes.get(tx.blockNumber) : undefined;
+    if (!tx || !ts) continue;
+    const token = log.address.toLowerCase();
+    const isNft = !!DOLZ_NFT_CONTRACTS[token] && log.topics.length === 4;
+    const tokenId = isNft ? BigInt(log.topics[3]).toString() : null;
+    added.push({
+      hash,
+      block: parseInt(log.blockNumber, 16),
+      ts,
+      logIndex: parseInt(log.logIndex, 16),
+      from: `0x${log.topics[1].slice(26)}`.toLowerCase(),
+      to: `0x${log.topics[2].slice(26)}`.toLowerCase(),
+      token,
+      tokenName: DOLZ_NFT_CONTRACTS[token] ?? PAYMENT_TOKENS[token]?.symbol ?? "",
+      tokenType: isNft ? "ERC-721" : "ERC-20",
+      decimals: isNft ? 0 : PAYMENT_TOKENS[token]?.decimals ?? 18,
+      value: isNft ? null : BigInt(log.data === "0x" ? 0 : log.data).toString(),
+      tokenId,
+      nftName: null,
+      method: tx.input.slice(0, 10).toLowerCase(),
+    });
+  }
+
+  const nftTransfers = added.filter((transfer) => transfer.tokenId);
+  for (let index = 0; index < nftTransfers.length; index += 4) {
+    await Promise.all(
+      nftTransfers.slice(index, index + 4).map(async (transfer) => {
+        transfer.nftName = await fetchNftName(transfer.token, transfer.tokenId as string);
+      }),
+    );
+  }
+
+  const details = [...txs.values()].map((tx) => ({
+    hash: tx.hash.toLowerCase(),
+    to: tx.to?.toLowerCase() ?? null,
+    method: tx.input.slice(0, 10).toLowerCase(),
+    ...decodeProxyInput(tx.input),
+  }));
+
+  return { added, details };
+}
+
 export async function getDolzReport(wallets = configuredDolzWallets()): Promise<DolzReport> {
-  const transfers = (await Promise.all(wallets.map((wallet) => fetchWalletTransfers(wallet)))).flat();
+  const indexed = (await Promise.all(wallets.map((wallet) => fetchWalletTransfers(wallet)))).flat();
+  const gaps = await fillIndexGaps(indexed, wallets).catch((error) => {
+    console.error("DOLZ gap fill failed", error);
+    return { added: [], details: [] as RawTxDetail[] };
+  });
+  const transfers = [...indexed, ...gaps.added];
   const groups = groupTransfers(transfers, wallets);
 
-  const details = new Map<string, RawTxDetail>();
-  const needed = hashesNeedingDetail(groups);
+  const details = new Map<string, RawTxDetail>(gaps.details.map((detail) => [detail.hash, detail]));
+  const needed = hashesNeedingDetail(groups).filter((hash) => !details.has(hash));
   for (let index = 0; index < needed.length; index += 4) {
     const batch = await Promise.all(needed.slice(index, index + 4).map((hash) => fetchTxDetail(hash).catch(() => null)));
     for (const detail of batch) if (detail) details.set(detail.hash, detail);
