@@ -417,63 +417,8 @@ function emptyChannels(): Record<DolzChannel, number> {
   return { "dolz-market": 0, opensea: 0, mint: 0, card: 0, auction: 0, free: 0 };
 }
 
-const MAIN_WALLET = DEFAULT_DOLZ_WALLETS[0];
-const WETH = "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619";
-const MANUAL_METHOD = "manual";
-
-/**
- * Transfers missing from Blockscout's index, added by hand. Each pair is an
- * NFT arriving in a wallet plus the payment for it.
- *
- * DolzNFT #251 (Sia SIBERIA - Sexy Kitty): a stolen card bought on OpenSea and
- * sold back to its owner on 2026-07-15 for the same 0.17 WETH. Blockscout has
- * the sale but not the purchase; the purchase date is unknown, so it is placed
- * when the card was resold after the theft (2026-03-15).
- */
-const MANUAL_TRANSFERS: RawTransfer[] = [
-  {
-    hash: "manual-dolznft-251-purchase",
-    block: 84240737,
-    ts: "2026-03-15T19:05:06.000000Z",
-    logIndex: 0,
-    from: "0x89e0a544c1bb8c834cecee4faf1f5a4b0a8eb1bd",
-    to: MAIN_WALLET,
-    token: "0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc",
-    tokenName: "DolzNFT",
-    tokenType: "ERC-721",
-    decimals: 0,
-    value: null,
-    tokenId: "251",
-    nftName: "Sia SIBERIA - Sexy Kitty",
-    method: MANUAL_METHOD,
-  },
-  {
-    hash: "manual-dolznft-251-purchase",
-    block: 84240737,
-    ts: "2026-03-15T19:05:06.000000Z",
-    logIndex: 1,
-    from: MAIN_WALLET,
-    to: "0x89e0a544c1bb8c834cecee4faf1f5a4b0a8eb1bd",
-    token: WETH,
-    tokenName: "WETH",
-    tokenType: "ERC-20",
-    decimals: 18,
-    value: "170000000000000000",
-    tokenId: null,
-    nftName: null,
-    method: MANUAL_METHOD,
-  },
-];
-
-export function groupTransfers(rawTransfers: RawTransfer[], wallets: string[]): TxGroup[] {
+export function groupTransfers(transfers: RawTransfer[], wallets: string[]): TxGroup[] {
   const own = new Set(wallets.map((wallet) => wallet.toLowerCase()));
-  // A manual entry is only a stand-in: drop it once the real transfer is found.
-  const manual = MANUAL_TRANSFERS.filter((entry) => {
-    if (!own.has(MAIN_WALLET)) return false;
-    const nft = MANUAL_TRANSFERS.find((candidate) => candidate.hash === entry.hash && candidate.tokenId);
-    return !rawTransfers.some((transfer) => transfer.token === nft?.token && transfer.tokenId === nft?.tokenId && transfer.to === MAIN_WALLET);
-  });
-  const transfers = [...rawTransfers, ...manual];
   const seen = new Set<string>();
   const groups = new Map<string, TxGroup>();
 
@@ -638,7 +583,7 @@ export function buildReport(
 
   for (const group of groups) {
     const paidSymbols = [...new Set([...group.payOut, ...group.payIn].map((transfer) => PAYMENT_TOKENS[transfer.token]?.symbol).filter(Boolean))].join("+");
-    const paidWith = paidSymbols ? `${paidSymbols}${group.method === MANUAL_METHOD ? " (doplnené ručne)" : ""}` : null;
+    const paidWith = paidSymbols || null;
     const payIsWeth = [...group.payOut, ...group.payIn].some((transfer) => PAYMENT_TOKENS[transfer.token]?.kind === "ETH");
     const marketChannel: DolzChannel = isOpenSeaMethod(group.method) || payIsWeth ? "opensea" : "dolz-market";
     const auctionPayOut = group.payOut.filter((transfer) => auctionContracts.has(transfer.to));

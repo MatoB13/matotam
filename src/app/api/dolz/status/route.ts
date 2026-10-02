@@ -5,7 +5,7 @@ import { getDolzReport } from "@/app/lib/dolzPortfolio";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // First load walks the full Blockscout history; later loads hit the fetch cache.
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // SHA-256 of the owner's DOLZ dashboard token. The repo is public, so only the
 // hash lives here; the token itself was handed to the owner directly.
