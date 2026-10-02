@@ -1,0 +1,37 @@
+name: dolz-data-probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare Polygon data sources for the DOLZ wallet
+        run: |
+          W=0xa4cd3de07dafa3f700c908043118b39547190143
+          NFT=0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc
+          echo "== balanceOf via public RPCs"
+          for r in https://polygon-bor-rpc.publicnode.com https://polygon.drpc.org https://1rpc.io/matic https://polygon.gateway.tenderly.co; do
+            curl -s -m 20 -X POST $r -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_call\",\"params\":[{\"to\":\"$NFT\",\"data\":\"0x70a08231000000000000000000000000${W:2}\"},\"latest\"]}" | head -c 200; echo "  <- $r"
+          done
+          echo "== Routescan tokennfttx"
+          RS="https://api.routescan.io/v2/network/mainnet/evm/137/etherscan/api"
+          curl -s -m 60 "$RS?module=account&action=tokennfttx&address=$W&contractaddress=$NFT&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc" -o nft.json
+          python3 -c "
+          import json; d=json.load(open('nft.json')); r=d.get('result')
+          print('status', d.get('status'), d.get('message'), 'rows', len(r) if isinstance(r,list) else r)
+          if isinstance(r,list):
+              W='$W'.lower(); held=set()
+              for x in r:
+                  if x['to'].lower()==W: held.add(x['tokenID'])
+                  if x['from'].lower()==W: held.discard(x['tokenID'])
+              print('net held from routescan transfers', len(held))
+              print('first', r[0]['timeStamp'], 'last', r[-1]['timeStamp'], 'keys', list(r[0].keys()))
+          "
+          echo "== Routescan tokentx (ERC-20)"
+          curl -s -m 60 "$RS?module=account&action=tokentx&address=$W&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc" -o erc.json
+          python3 -c "
+          import json; d=json.load(open('erc.json')); r=d.get('result'); print('status', d.get('status'), d.get('message'), 'rows', len(r) if isinstance(r,list) else r)"
+          echo "== Routescan tx by hash (proxy)"
+          curl -s -m 30 "$RS?module=proxy&action=eth_getTransactionByHash&txhash=0x90e57c81" | head -c 200; echo
+          echo "== Etherscan v2 without key"
+          curl -s -m 30 "https://api.etherscan.io/v2/api?chainid=137&module=account&action=tokennfttx&address=$W&page=1&offset=5" | head -c 300; echo
