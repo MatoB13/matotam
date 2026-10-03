@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getDolzReport } from "@/app/lib/dolzPortfolio";
+import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
+import { getSniperStatus, getSniperWallet } from "@/app/lib/dolzSniper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,9 +35,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await getDolzReport();
+    // Cards the sniper buys sit on its hot wallet, so track that wallet too.
+    const sniperWallet = await getSniperWallet();
+    const wallets = configuredDolzWallets();
+    const [data, sniper] = await Promise.all([
+      getDolzReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets),
+      getSniperStatus(),
+    ]);
     return NextResponse.json(
-      { ok: true, data },
+      { ok: true, data, sniper },
       { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } },
     );
   } catch (error) {

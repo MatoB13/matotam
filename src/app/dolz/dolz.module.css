@@ -329,6 +329,20 @@
   font-size: 12px;
 }
 
+.ruleList {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  color: #c9d8d0;
+  font-size: 13px;
+}
+
+.ruleList strong {
+  color: #f5fff7;
+}
+
 .tableWrap {
   overflow-x: auto;
 }

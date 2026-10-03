@@ -71,6 +71,14 @@ function buildNotification(body: NotifyBody) {
   const exitReason = typeof metadata.exit_reason === "string" ? metadata.exit_reason : undefined;
   const pnlUsd = metadata.pnl_usd;
 
+  if (eventType.startsWith("DOLZ_")) {
+    return {
+      title: typeof metadata.title === "string" ? metadata.title : "DOLZ sniper",
+      body: String(body.message || ""),
+      tag: `dolz-${eventType.toLowerCase()}-${String(metadata.token_id ?? Date.now())}`,
+    };
+  }
+
   if (eventType === "BURST_MODE_STARTED") {
     return {
       title: `⚡ ${asset} burst started`,
