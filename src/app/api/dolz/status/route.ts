@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { isDolzAuthorized } from "../auth";
 import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
 import { getSniperWallet } from "@/app/lib/dolzSniper";
@@ -7,6 +8,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 300;
+
+const REPORT_TAG = "dolz-report";
+
+// The report takes tens of seconds to build, so page loads share one copy. After 10 minutes the
+// next load still gets the stored copy at once while a fresh one is built in the background.
+const cachedReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v1"], {
+  revalidate: 600,
+  tags: [REPORT_TAG],
+});
 
 function unauthorized() {
   return NextResponse.json(
@@ -24,7 +34,9 @@ export async function GET(request: NextRequest) {
     // Cards the sniper buys sit on its hot wallet, so track that wallet too.
     const sniperWallet = await getSniperWallet(request.nextUrl.searchParams.get("token") ?? "");
     const wallets = configuredDolzWallets();
-    const data = await getDolzReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
+    // "Obnoviť" asks for a fresh report instead of the stored one.
+    if (request.nextUrl.searchParams.get("fresh") === "1") revalidateTag(REPORT_TAG, { expire: 0 });
+    const data = await cachedReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
     return NextResponse.json(
       { ok: true, data },
       { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } },

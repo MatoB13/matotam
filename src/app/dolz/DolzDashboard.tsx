@@ -6,6 +6,9 @@ import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/
 import SniperTab from "./SniperTab";
 
 type ApiResponse = { ok: boolean; data?: DolzReport; error?: string };
+
+// The last report, shown right away on the next visit while a current one loads.
+const REPORT_STORAGE_KEY = "dolz-report-v1";
 type Unit = "usd" | "dolz";
 
 // Categorical slots (dark steps) in fixed order; validated against the page surface.
@@ -364,7 +367,7 @@ export default function DolzDashboard({ token }: { token: string }) {
   const [unit, setUnit] = useState<Unit>("usd");
   const [activityFilter, setActivityFilter] = useState<"all" | "buy" | "sell" | "other">("all");
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (fresh = false) => {
     if (!token) {
       setError("Chýba token v URL (?token=…).");
       return;
@@ -372,10 +375,15 @@ export default function DolzDashboard({ token }: { token: string }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/dolz/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      const response = await fetch(`/api/dolz/status?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`, { cache: "no-store" });
       const json = (await response.json()) as ApiResponse;
       if (!response.ok || !json.ok || !json.data) throw new Error(json.error || `HTTP ${response.status}`);
       setData(json.data);
+      try {
+        window.localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify(json.data));
+      } catch {
+        // Storage full or blocked: the page just loads from the server next time.
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať dáta.");
     } finally {
@@ -385,7 +393,15 @@ export default function DolzDashboard({ token }: { token: string }) {
 
   useEffect(() => {
     // Defer so the loading state is not set synchronously inside the effect.
-    const id = window.setTimeout(() => void loadData(), 0);
+    const id = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(REPORT_STORAGE_KEY);
+        if (stored) setData((current) => current ?? (JSON.parse(stored) as DolzReport));
+      } catch {
+        // Unreadable copy: wait for the server.
+      }
+      void loadData();
+    }, 0);
     return () => window.clearTimeout(id);
   }, [loadData]);
 
@@ -524,7 +540,7 @@ export default function DolzDashboard({ token }: { token: string }) {
             <button className={isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("usd")}>USD</button>
             <button className={!isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("dolz")}>DOLZ</button>
           </div>
-          <button className={styles.refreshButton} onClick={() => void loadData()} disabled={loading}>
+          <button className={styles.refreshButton} onClick={() => void loadData(true)} disabled={loading}>
             {loading ? "Načítavam…" : "Obnoviť"}
           </button>
           <p className={styles.updatedText}>
