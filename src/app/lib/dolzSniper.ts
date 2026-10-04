@@ -73,14 +73,14 @@ function sniperUrl(): string | null {
 
 type SniperResponse<T> = { ok: boolean; error?: string } & T;
 
-async function callSniper<T>(path: string, token: string, init?: RequestInit): Promise<SniperResponse<T>> {
+async function callSniper<T>(path: string, token: string, init?: RequestInit, timeoutMs = 10_000): Promise<SniperResponse<T>> {
   const base = sniperUrl();
   if (!base) throw new Error("Sniper ešte nie je nasadený.");
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: { "content-type": "application/json", "X-Dolz-Token": token, ...(init?.headers ?? {}) },
     cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const json = (await response.json().catch(() => ({ ok: false, error: `Sniper odpovedal HTTP ${response.status}` }))) as SniperResponse<T>;
   if (!response.ok || !json.ok) throw new Error(json.error || `Sniper odpovedal HTTP ${response.status}`);
@@ -115,6 +115,51 @@ export async function saveSniperConfig(token: string, config: unknown): Promise<
 /** Ask the sniper to re-check every active listing against the rules now. */
 export async function requestSniperRescan(token: string): Promise<void> {
   await callSniper<Record<string, never>>("/rescan", token, { method: "POST", body: "{}" });
+}
+
+export type DolzSellListing = {
+  price_usd: number | null;
+  currency: string;
+  /** Unix seconds. */
+  expiration: number | null;
+  active: boolean;
+  tx: string;
+};
+
+export type DolzSellCard = {
+  token_id: string;
+  name: string | null;
+  card: string | null;
+  tier: string | null;
+  serial: number | null;
+  rarity: string | null;
+  season: string | null;
+  image: string | null;
+  bought_usd: number | null;
+  bought_at: string | null;
+  listing: DolzSellListing | null;
+  /** Market median for this card and tier (added by the dashboard). */
+  market?: { usd: number; source: string; sales: number } | null;
+};
+
+export type DolzSellInventory = { wallet: string; durations: number[]; cards: DolzSellCard[] };
+
+export type DolzSellResult = { token_id: string; ok: boolean; tx?: string; action?: string; error?: string };
+
+/** Cards in the sniper's hot wallet with their own market listings. */
+export async function getSniperInventory(token: string): Promise<DolzSellInventory> {
+  return (await callSniper<{ inventory: DolzSellInventory }>("/inventory", token, undefined, 60_000)).inventory;
+}
+
+/** List or reprice cards; the sniper sends one transaction per card and waits for each. */
+export async function listSniperCards(token: string, items: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>("/list", token, { method: "POST", body: JSON.stringify({ items }) }, 280_000);
+  return json.results;
+}
+
+export async function cancelSniperListings(token: string, tokenIds: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>("/cancel", token, { method: "POST", body: JSON.stringify({ token_ids: tokenIds }) }, 280_000);
+  return json.results;
 }
 
 export function isSniperConfigured(): boolean {

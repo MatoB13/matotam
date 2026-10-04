@@ -690,3 +690,111 @@
     flex-direction: column;
   }
 }
+
+/* Sniper sub-tabs and the Predaj (sell) view */
+.subTabBar {
+  margin: 4px 0 0;
+}
+
+.sellBulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.sellBulk .moneyInput {
+  width: 120px;
+}
+
+.sellBulk select,
+.sellTable select {
+  min-height: 38px;
+}
+
+.sellTable td {
+  vertical-align: middle;
+}
+
+.sellCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.sellCard img {
+  width: 36px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: none;
+}
+
+.sellCard > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sellPrice {
+  width: 110px;
+}
+
+.sellActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sellActions .primaryButton {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.sellSelected td {
+  background: rgba(69, 239, 108, 0.06);
+}
+
+.sellBulk input,
+.sellBulk select,
+.sellTable input:not([type="checkbox"]),
+.sellTable select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5fff7;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sellBulk select,
+.sellTable select {
+  width: auto;
+}
+
+.sellBulk select option,
+.sellTable select option {
+  background: #0b1610;
+}
+
+.sellBulk input:focus,
+.sellBulk select:focus,
+.sellTable input:focus,
+.sellTable select:focus {
+  outline: none;
+  border-color: rgba(69, 239, 108, 0.7);
+}
+
+.sellTable input[type="checkbox"],
+.sellBulk input[type="checkbox"] {
+  accent-color: #45ef6c;
+  width: 18px;
+  height: 18px;
+}

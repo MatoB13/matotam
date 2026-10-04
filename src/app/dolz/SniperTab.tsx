@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
+import SellPanel from "./SellPanel";
 import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
 import type { DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
 
@@ -35,6 +36,13 @@ type RuleDraft = { id: number; enabled: boolean; card: string; min_rarity: strin
 type ConfigDraft = { enabled: boolean; dry_run: boolean; daily_budget_usd: string; max_buys_per_day: string; rules: RuleDraft[] };
 
 let nextRuleId = 1;
+
+type SniperView = "settings" | "purchases" | "sell";
+const VIEWS: { id: SniperView; label: string }[] = [
+  { id: "settings", label: "Nastavenia" },
+  { id: "purchases", label: "Nákupy a pokusy" },
+  { id: "sell", label: "Predaj" },
+];
 
 function catalogLabel(card: string): string {
   const entry = DOLZ_CARD_CATALOG.find((item) => item.card === card.toLowerCase());
@@ -103,6 +111,7 @@ export default function SniperTab({ token }: { token: string }) {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<number>(0);
   const [availability, setAvailability] = useState<"loading" | "ok" | "not_deployed" | "unreachable">("loading");
+  const [view, setView] = useState<SniperView>("settings");
 
   const load = useCallback(
     async (resetDraft: boolean) => {
@@ -263,7 +272,22 @@ export default function SniperTab({ token }: { token: string }) {
         </p>
       </section>
 
-      {draft ? (
+      <nav className={`${styles.tabBar} ${styles.subTabBar}`} role="tablist" aria-label="Sniper">
+        {VIEWS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={view === item.id}
+            className={view === item.id ? styles.tabActive : styles.tab}
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {view !== "settings" ? null : draft ? (
         <section className={styles.panelFull}>
           <div className={styles.panelTitleRow}>
             <h2>Nastavenia</h2>
@@ -393,6 +417,9 @@ export default function SniperTab({ token }: { token: string }) {
         <section className={styles.loadingBox}>Načítavam nastavenia snipera…</section>
       ) : null}
 
+      {view === "sell" ? <SellPanel token={token} /> : null}
+
+      {view === "purchases" ? (
       <section className={styles.panelFull}>
         <div className={styles.panelTitleRow}>
           <h2>Nákupy a pokusy</h2>
@@ -452,6 +479,7 @@ export default function SniperTab({ token }: { token: string }) {
           </table>
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
