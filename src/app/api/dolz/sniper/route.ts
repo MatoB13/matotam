@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSniperStatus, isSniperConfigured, saveSniperConfig } from "@/app/lib/dolzSniper";
+import { getSniperStatus, isSniperConfigured, requestSniperRescan, saveSniperConfig } from "@/app/lib/dolzSniper";
 import { isDolzAuthorized } from "../auth";
 
 export const runtime = "nodejs";
@@ -19,6 +19,10 @@ export async function POST(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
   const token = request.nextUrl.searchParams.get("token") ?? "";
   try {
+    if (request.nextUrl.searchParams.get("action") === "rescan") {
+      await requestSniperRescan(token);
+      return NextResponse.json({ ok: true }, { headers });
+    }
     const saved = await saveSniperConfig(token, await request.json());
     return NextResponse.json({ ok: true, ...saved }, { headers });
   } catch (error) {

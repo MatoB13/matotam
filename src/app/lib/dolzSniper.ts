@@ -112,6 +112,11 @@ export async function saveSniperConfig(token: string, config: unknown): Promise<
   return { config: json.config, updatedAt: json.updatedAt };
 }
 
+/** Ask the sniper to re-check every active listing against the rules now. */
+export async function requestSniperRescan(token: string): Promise<void> {
+  await callSniper<Record<string, never>>("/rescan", token, { method: "POST", body: "{}" });
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }

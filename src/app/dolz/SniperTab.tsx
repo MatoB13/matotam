@@ -99,6 +99,7 @@ export default function SniperTab({ token }: { token: string }) {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scanState, setScanState] = useState<"idle" | "sending" | "sent">("idle");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<number>(0);
   const [availability, setAvailability] = useState<"loading" | "ok" | "not_deployed" | "unreachable">("loading");
@@ -175,6 +176,21 @@ export default function SniperTab({ token }: { token: string }) {
     }
   };
 
+  const rescan = async () => {
+    setScanState("sending");
+    setError(null);
+    try {
+      const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=rescan`, { method: "POST" });
+      const json = (await response.json()) as ApiResponse;
+      if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);
+      setScanState("sent");
+      window.setTimeout(() => void load(false), 8_000);
+    } catch (scanError) {
+      setScanState("idle");
+      setError(scanError instanceof Error ? scanError.message : "Prehľadanie trhu zlyhalo.");
+    }
+  };
+
   const lastBeat = status?.heartbeat ? new Date(status.heartbeat) : null;
   const alive = !!lastBeat && checkedAt - lastBeat.getTime() < 2 * 60_000;
   const applied = !!status?.configUpdatedAt && !!status?.configSeenAt && status.configSeenAt >= status.configUpdatedAt;
@@ -228,6 +244,14 @@ export default function SniperTab({ token }: { token: string }) {
             ))}
           </ul>
         ) : null}
+        <div className={styles.formActions}>
+          <p className={styles.chartNote}>
+            Sniper kupuje nové ponuky hneď, ako sa objavia. Ponuky, ktoré už na trhu sú, prejde pri štarte, po uložení nastavení a na toto tlačidlo.
+          </p>
+          <button type="button" className={styles.refreshButton} onClick={() => void rescan()} disabled={scanState === "sending" || availability !== "ok"}>
+            {scanState === "sending" ? "Posielam…" : scanState === "sent" ? "Prehľadáva sa ✓" : "Prehľadať trh teraz"}
+          </button>
+        </div>
         <p className={styles.chartNote}>
           {status?.configUpdatedAt
             ? applied
