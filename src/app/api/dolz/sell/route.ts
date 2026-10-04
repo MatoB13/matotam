@@ -4,7 +4,8 @@ import { answerSniperOffer, cancelSniperListings, getSniperInventory, listSniper
 import { isDolzAuthorized } from "../auth";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// No "force-dynamic": it turns off the data cache (unstable_cache and cached fetches) for the whole
+// route. The handler reads the request, so it is rendered per request anyway.
 export const maxDuration = 300;
 
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };

@@ -5,7 +5,8 @@ import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
 import { getSniperWallet } from "@/app/lib/dolzSniper";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// No "force-dynamic": it turns off the data cache (unstable_cache and cached fetches) for the whole
+// route. The handler reads the request, so it is rendered per request anyway.
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 300;
 
