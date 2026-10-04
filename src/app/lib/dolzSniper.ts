@@ -64,7 +64,7 @@ export type DolzSniperStatus = {
 };
 
 /** Public URL of the sniper service; DOLZ_SNIPER_URL overrides it. */
-const DEFAULT_SNIPER_URL = "https://strike-bot-production-b51b.up.railway.app";
+const DEFAULT_SNIPER_URL = "https://dolz-sniper-production.up.railway.app";
 
 function sniperUrl(): string | null {
   const url = (process.env.DOLZ_SNIPER_URL || DEFAULT_SNIPER_URL).trim().replace(/\/$/, "");
