@@ -81,11 +81,11 @@ export default function SellPanel({ token }: { token: string }) {
     });
   const allSelected = cards.length > 0 && cards.every((card) => selected.has(card.token_id));
 
-  const submit = async (label: string, action: "list" | "cancel", payload: object) => {
+  const submit = async (label: string, action: "list" | "cancel" | "transfer", payload: object) => {
     setBusy(label);
     setError(null);
     try {
-      const response = await fetch(`/api/dolz/sell?token=${encodeURIComponent(token)}${action === "cancel" ? "&action=cancel" : ""}`, {
+      const response = await fetch(`/api/dolz/sell?token=${encodeURIComponent(token)}${action === "list" ? "" : `&action=${action}`}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -96,7 +96,7 @@ export default function SellPanel({ token }: { token: string }) {
         const next = { ...current };
         for (const result of json.results ?? []) {
           next[result.token_id] = result.ok
-            ? { ok: true, text: action === "cancel" ? "ponuka zrušená" : (result.action ?? "vystavené"), tx: result.tx }
+            ? { ok: true, text: action === "cancel" ? "ponuka zrušená" : action === "transfer" ? "presunuté" : (result.action ?? "vystavené"), tx: result.tx }
             : { ok: false, text: result.error ?? "zlyhalo", tx: result.tx };
         }
         return next;
@@ -128,6 +128,19 @@ export default function SellPanel({ token }: { token: string }) {
     }
     const items = cards.filter((card) => selected.has(card.token_id)).map((card) => ({ token_id: card.token_id, price_usd: price, days: bulk.days }));
     if (items.length) void submit("bulk", "list", { items });
+  };
+
+  const transferTarget = inventory?.transferTargets?.[0] ?? null;
+  const transferSelected = () => {
+    const tokenIds = cards.filter((card) => selected.has(card.token_id)).map((card) => card.token_id);
+    if (!transferTarget || !tokenIds.length) return;
+    const listed = cards.filter((card) => selected.has(card.token_id) && listingState(card, loadedAt) === "active").length;
+    const question =
+      `Presunúť ${tokenIds.length} ${tokenIds.length === 1 ? "kartu" : tokenIds.length < 5 ? "karty" : "kariet"} na ${transferTarget}?` +
+      (listed ? `\n${listed} z nich ${listed === 1 ? "je vystavená" : "sú vystavené"} na predaj, ponuky sa najprv zrušia.` : "");
+    if (!window.confirm(question)) return;
+    setSelected(new Set());
+    void submit("bulk", "transfer", { token_ids: tokenIds, to: transferTarget });
   };
 
   const cancelSelected = () => {
@@ -187,6 +200,17 @@ export default function SellPanel({ token }: { token: string }) {
         <button type="button" className={styles.refreshButton} onClick={cancelSelected} disabled={!!busy || selectedListed === 0}>
           Zrušiť ponuky vybraných
         </button>
+        {transferTarget ? (
+          <button
+            type="button"
+            className={styles.refreshButton}
+            onClick={transferSelected}
+            disabled={!!busy || selected.size === 0}
+            title={`Pošle vybrané karty na ${transferTarget}`}
+          >
+            Presunúť na {transferTarget.slice(0, 6)}…{transferTarget.slice(-4)}
+          </button>
+        ) : null}
         <button type="button" className={styles.refreshButton} onClick={() => void load()} disabled={loading || !!busy}>
           {loading ? "Načítavam…" : "Obnoviť"}
         </button>

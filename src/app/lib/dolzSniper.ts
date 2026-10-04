@@ -142,7 +142,13 @@ export type DolzSellCard = {
   market?: { usd: number; source: string; sales: number } | null;
 };
 
-export type DolzSellInventory = { wallet: string; durations: number[]; cards: DolzSellCard[] };
+export type DolzSellInventory = {
+  wallet: string;
+  durations: number[];
+  /** Wallets the sniper may move cards to (fixed on the sniper side). */
+  transferTargets?: string[];
+  cards: DolzSellCard[];
+};
 
 export type DolzSellResult = { token_id: string; ok: boolean; tx?: string; action?: string; error?: string };
 
@@ -159,6 +165,12 @@ export async function listSniperCards(token: string, items: unknown): Promise<Do
 
 export async function cancelSniperListings(token: string, tokenIds: unknown): Promise<DolzSellResult[]> {
   const json = await callSniper<{ results: DolzSellResult[] }>("/cancel", token, { method: "POST", body: JSON.stringify({ token_ids: tokenIds }) }, 280_000);
+  return json.results;
+}
+
+/** Move cards to one of the sniper's allowed wallets; open listings are cancelled first. */
+export async function transferSniperCards(token: string, tokenIds: unknown, to: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>("/transfer", token, { method: "POST", body: JSON.stringify({ token_ids: tokenIds, to }) }, 280_000);
   return json.results;
 }
 
