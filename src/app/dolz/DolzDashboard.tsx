@@ -541,7 +541,7 @@ export default function DolzDashboard({ token }: { token: string }) {
             <button className={!isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("dolz")}>DOLZ</button>
           </div>
           <button className={styles.refreshButton} onClick={() => void loadData(true)} disabled={loading}>
-            {loading ? "Načítavam…" : "Obnoviť"}
+            {loading ? (data ? "Aktualizujem…" : "Načítavam…") : "Obnoviť"}
           </button>
           <p className={styles.updatedText}>
             Stav: {data ? new Date(data.generatedAt).toLocaleString("sk-SK") : "—"} · DOLZ {data?.dolzPriceNow ? `$${data.dolzPriceNow.toFixed(5)}` : "—"}
