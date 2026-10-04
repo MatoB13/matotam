@@ -1,7 +1,6 @@
-// Read-only view of the DOLZ sniper (strike-bot repo, dolz_sniper.py), which
-// writes its state into the strike bot's Postgres database.
-
-import { Pool } from "pg";
+// Client for the DOLZ sniper's API (strike-bot repo, dolz_sniper/). The sniper
+// runs in its own Railway project with its own database; the dashboard reads
+// its status and saves its settings over HTTP, forwarding the owner's token.
 
 export type DolzSniperPurchase = {
   id: number;
@@ -27,11 +26,35 @@ export type DolzSniperEvent = {
   message: string | null;
 };
 
+export const SNIPER_RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
+export const SNIPER_MAX_RULES = 10;
+
+export type DolzSniperRule = {
+  enabled: boolean;
+  /** Card number such as "g0177"; null means any card. */
+  card: string | null;
+  card_name?: string | null;
+  /** Minimum rarity: Rare also covers Epic and Legendary. Null means any rarity. */
+  min_rarity: (typeof SNIPER_RARITIES)[number] | null;
+  max_price: number;
+  max_serial?: number | null;
+};
+
+export type DolzSniperConfig = {
+  enabled: boolean;
+  dry_run: boolean;
+  daily_budget_usd: number;
+  max_buys_per_day: number;
+  rules: DolzSniperRule[];
+};
+
 export type DolzSniperStatus = {
   wallet: string | null;
   heartbeat: string | null;
-  rules: { name: string; max_price: number; [key: string]: unknown }[];
-  limits: { daily_budget_usd?: number; max_price_usd?: number; max_buys_per_day?: number; dry_run?: boolean; enabled?: boolean };
+  balances: { usdc?: number; pol?: number };
+  config: DolzSniperConfig;
+  configUpdatedAt: string | null;
+  configSeenAt: string | null;
   spentTodayUsd: number;
   boughtToday: number;
   boughtTotal: number;
@@ -40,80 +63,55 @@ export type DolzSniperStatus = {
   events: DolzSniperEvent[];
 };
 
-const globalForPg = globalThis as unknown as { dolzSniperPool?: Pool };
+/** Public URL of the sniper service; DOLZ_SNIPER_URL overrides it. */
+const DEFAULT_SNIPER_URL = "";
 
-function getPool(): Pool | null {
-  const connectionString = process.env.STRIKEBOT_DATABASE_URL || process.env.DATABASE_URL;
-  if (!connectionString) return null;
-  if (!globalForPg.dolzSniperPool) {
-    globalForPg.dolzSniperPool = new Pool({
-      connectionString,
-      max: 2,
-      idleTimeoutMillis: 10_000,
-      connectionTimeoutMillis: 5_000,
-    });
-  }
-  return globalForPg.dolzSniperPool;
+function sniperUrl(): string | null {
+  const url = (process.env.DOLZ_SNIPER_URL || DEFAULT_SNIPER_URL).trim().replace(/\/$/, "");
+  return url || null;
 }
 
-/** The sniper's hot wallet, so the portfolio includes what it buys. */
-export async function getSniperWallet(): Promise<string | null> {
-  const pool = getPool();
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query<{ value: string }>("SELECT value FROM dolz_sniper_state WHERE key = 'wallet'");
-    const wallet = rows[0]?.value?.toLowerCase() ?? null;
-    return wallet && /^0x[0-9a-f]{40}$/.test(wallet) ? wallet : null;
-  } catch {
-    return null; // tables do not exist until the sniper has run once
-  }
+type SniperResponse<T> = { ok: boolean; error?: string } & T;
+
+async function callSniper<T>(path: string, token: string, init?: RequestInit): Promise<SniperResponse<T>> {
+  const base = sniperUrl();
+  if (!base) throw new Error("Sniper ešte nie je nasadený.");
+  const response = await fetch(`${base}${path}`, {
+    ...init,
+    headers: { "content-type": "application/json", "X-Dolz-Token": token, ...(init?.headers ?? {}) },
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  const json = (await response.json().catch(() => ({ ok: false, error: `Sniper odpovedal HTTP ${response.status}` }))) as SniperResponse<T>;
+  if (!response.ok || !json.ok) throw new Error(json.error || `Sniper odpovedal HTTP ${response.status}`);
+  return json;
 }
 
-export async function getSniperStatus(): Promise<DolzSniperStatus | null> {
-  const pool = getPool();
-  if (!pool) return null;
+/** Status for the Sniper tab, or null when the sniper is not deployed or unreachable. */
+export async function getSniperStatus(token: string): Promise<DolzSniperStatus | null> {
+  if (!sniperUrl()) return null;
   try {
-    const [state, purchases, events, today, total] = await Promise.all([
-      pool.query<{ key: string; value: string }>("SELECT key, value FROM dolz_sniper_state"),
-      pool.query<DolzSniperPurchase>(
-        `SELECT id, created_at, token_id::text, price_usd::text, rule_name, card_name, card_number, tier, serial, rarity, status, tx_hash, error, dry_run
-         FROM dolz_sniper_purchases ORDER BY id DESC LIMIT 60`,
-      ),
-      pool.query<DolzSniperEvent>("SELECT id, created_at, event_type, message FROM dolz_sniper_events ORDER BY id DESC LIMIT 40"),
-      pool.query<{ spent: string; count: string }>(
-        `SELECT COALESCE(SUM(price_usd), 0)::text AS spent, COUNT(*)::text AS count FROM dolz_sniper_purchases
-         WHERE status = 'bought' AND dry_run = FALSE AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
-      ),
-      pool.query<{ spent: string; count: string }>(
-        "SELECT COALESCE(SUM(price_usd), 0)::text AS spent, COUNT(*)::text AS count FROM dolz_sniper_purchases WHERE status = 'bought' AND dry_run = FALSE",
-      ),
-    ]);
-    const values = Object.fromEntries(state.rows.map((row) => [row.key, row.value]));
-    let rules: DolzSniperStatus["rules"] = [];
-    try {
-      rules = values.rules ? JSON.parse(values.rules) : [];
-    } catch {
-      rules = [];
-    }
-    let limits: DolzSniperStatus["limits"] = {};
-    try {
-      limits = values.limits ? JSON.parse(values.limits) : {};
-    } catch {
-      limits = {};
-    }
-    return {
-      wallet: values.wallet ?? null,
-      limits,
-      heartbeat: values.heartbeat ?? null,
-      rules,
-      spentTodayUsd: Number(today.rows[0]?.spent ?? 0),
-      boughtToday: Number(today.rows[0]?.count ?? 0),
-      spentTotalUsd: Number(total.rows[0]?.spent ?? 0),
-      boughtTotal: Number(total.rows[0]?.count ?? 0),
-      purchases: purchases.rows,
-      events: events.rows,
-    };
+    return (await callSniper<{ sniper: DolzSniperStatus }>("/status", token)).sniper;
   } catch {
     return null;
   }
+}
+
+/** The sniper's hot wallet, so the portfolio includes the cards it buys. */
+export async function getSniperWallet(token: string): Promise<string | null> {
+  const wallet = (await getSniperStatus(token))?.wallet?.toLowerCase() ?? null;
+  return wallet && /^0x[0-9a-f]{40}$/.test(wallet) ? wallet : null;
+}
+
+/** Save settings; the sniper validates them and answers with what it stored. */
+export async function saveSniperConfig(token: string, config: unknown): Promise<{ config: DolzSniperConfig; updatedAt: string }> {
+  const json = await callSniper<{ config: DolzSniperConfig; updatedAt: string }>("/config", token, {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+  return { config: json.config, updatedAt: json.updatedAt };
+}
+
+export function isSniperConfigured(): boolean {
+  return !!sniperUrl();
 }

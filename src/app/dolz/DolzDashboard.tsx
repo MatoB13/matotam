@@ -3,9 +3,9 @@
 import { PointerEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
 import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/dolzPortfolio";
-import type { DolzSniperStatus } from "@/app/lib/dolzSniper";
+import SniperTab from "./SniperTab";
 
-type ApiResponse = { ok: boolean; data?: DolzReport; sniper?: DolzSniperStatus | null; error?: string };
+type ApiResponse = { ok: boolean; data?: DolzReport; error?: string };
 type Unit = "usd" | "dolz";
 
 // Categorical slots (dark steps) in fixed order; validated against the page surface.
@@ -354,123 +354,11 @@ function MetricCard({ label, value, detail, className }: { label: string; value:
   );
 }
 
-const SNIPER_STATUS_LABELS: Record<string, string> = {
-  bought: "kúpené",
-  pending: "odosiela sa",
-  unconfirmed: "nepotvrdené",
-  failed: "zlyhalo",
-  missed: "niekto bol rýchlejší",
-  error: "chyba",
-  skipped_budget: "denný limit",
-  skipped_balance: "málo USDC",
-  dry_run: "dry run",
-};
-
-function SniperPanel({ sniper, checkedAt }: { sniper: DolzSniperStatus; checkedAt: string }) {
-  const lastBeat = sniper.heartbeat ? new Date(sniper.heartbeat) : null;
-  // Compare against the time the server read the status, not the render time.
-  const alive = !!lastBeat && new Date(checkedAt).getTime() - lastBeat.getTime() < 2 * 60_000;
-  const limits = sniper.limits;
-  const budget = limits.daily_budget_usd ?? null;
-  const ruleText = (rule: DolzSniperStatus["rules"][number]) => {
-    const parts: string[] = [];
-    const list = (key: string) => (Array.isArray(rule[key]) ? (rule[key] as unknown[]).join(", ") : null);
-    if (list("cards")) parts.push(`karty ${list("cards")}`);
-    if (list("tiers")) parts.push(`tier /${list("tiers")}`);
-    if (list("rarities")) parts.push(String(list("rarities")));
-    if (list("seasons")) parts.push(`sezóna ${list("seasons")}`);
-    if (list("names")) parts.push(`meno „${list("names")}“`);
-    if (rule.max_serial != null) parts.push(`sériové č. ≤ ${String(rule.max_serial)}`);
-    if (rule.min_serial != null) parts.push(`sériové č. ≥ ${String(rule.min_serial)}`);
-    return `${parts.length ? parts.join(" · ") : "všetky karty"} do ${formatUsd(Number(rule.max_price), 2)}`;
-  };
-
-  return (
-    <section className={styles.panelFull}>
-      <div className={styles.panelTitleRow}>
-        <h2>Sniper</h2>
-        <span>
-          <span className={alive ? styles.goodText : styles.badText}>● {alive ? "beží" : "nebeží"}</span>
-          {lastBeat ? ` · naposledy ${lastBeat.toLocaleTimeString("sk-SK")}` : ""}
-          {limits.dry_run ? " · DRY RUN" : ""}
-          {limits.enabled === false ? " · vypnutý" : ""}
-          {sniper.wallet ? ` · wallet ${sniper.wallet.slice(0, 6)}…${sniper.wallet.slice(-4)}` : ""}
-        </span>
-      </div>
-      <div className={styles.metricsGrid}>
-        <MetricCard
-          label="Dnes minuté"
-          value={formatUsd(sniper.spentTodayUsd, 2)}
-          detail={budget !== null ? `z ${formatUsd(budget)} denného rozpočtu` : undefined}
-        />
-        <MetricCard label="Dnes kúpené" value={String(sniper.boughtToday)} detail={limits.max_buys_per_day ? `max ${limits.max_buys_per_day} / deň` : undefined} />
-        <MetricCard label="Spolu kúpené" value={String(sniper.boughtTotal)} detail={formatUsd(sniper.spentTotalUsd, 2)} />
-        <MetricCard label="Max. cena za kartu" value={limits.max_price_usd != null ? formatUsd(limits.max_price_usd) : "—"} detail={`${sniper.rules.length} pravidiel`} />
-      </div>
-      {sniper.rules.length ? (
-        <ul className={styles.ruleList}>
-          {sniper.rules.map((rule) => (
-            <li key={rule.name}>
-              <strong>{rule.name}</strong>: {ruleText(rule)}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className={styles.chartNote}>Žiadne pravidlá. Nastav DOLZ_SNIPER_RULES v Railway službe snipera.</p>
-      )}
-      <div className={`${styles.tableWrap} ${styles.scrollBox}`}>
-        <table>
-          <thead>
-            <tr>
-              <th>Čas</th>
-              <th>Karta</th>
-              <th>Rarita</th>
-              <th className={styles.num}>Cena</th>
-              <th>Pravidlo</th>
-              <th>Výsledok</th>
-              <th>Tx</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sniper.purchases.length === 0 ? (
-              <tr><td colSpan={7} className={styles.emptyCell}>Zatiaľ žiadne zhody s pravidlami.</td></tr>
-            ) : sniper.purchases.map((purchase) => (
-              <tr key={purchase.id}>
-                <td>{new Date(purchase.created_at).toLocaleString("sk-SK")}</td>
-                <td>
-                  {purchase.card_name?.trim() || `#${purchase.token_id}`}
-                  {purchase.card_number ? <small className={styles.mutedText}> · {purchase.card_number}</small> : null}
-                </td>
-                <td>
-                  {[purchase.rarity && purchase.rarity !== "Not revealed" ? purchase.rarity : null, purchase.tier ? `/${purchase.tier}` : null].filter(Boolean).join(" ") || "—"}
-                  {purchase.serial != null ? <small className={styles.mutedText}> · #{purchase.serial}</small> : null}
-                </td>
-                <td className={styles.num}>{formatUsd(Number(purchase.price_usd), 2)}</td>
-                <td>{purchase.rule_name ?? "—"}</td>
-                <td className={purchase.status === "bought" ? styles.goodText : purchase.status === "failed" || purchase.status === "error" ? styles.badText : styles.mutedText} title={purchase.error ?? undefined}>
-                  {SNIPER_STATUS_LABELS[purchase.status] ?? purchase.status}
-                </td>
-                <td>
-                  {purchase.tx_hash ? (
-                    <a href={`https://polygonscan.com/tx/${purchase.tx_hash}`} target="_blank" rel="noreferrer" className={styles.txLink}>
-                      {purchase.tx_hash.slice(0, 8)}…
-                    </a>
-                  ) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 // ---------------------------------------------------------------------------
 
 export default function DolzDashboard({ token }: { token: string }) {
   const [data, setData] = useState<DolzReport | null>(null);
-  const [sniper, setSniper] = useState<DolzSniperStatus | null>(null);
+  const [tab, setTab] = useState<"portfolio" | "sniper">("portfolio");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [unit, setUnit] = useState<Unit>("usd");
@@ -488,7 +376,6 @@ export default function DolzDashboard({ token }: { token: string }) {
       const json = (await response.json()) as ApiResponse;
       if (!response.ok || !json.ok || !json.data) throw new Error(json.error || `HTTP ${response.status}`);
       setData(json.data);
-      setSniper(json.sniper ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať dáta.");
     } finally {
@@ -646,10 +533,21 @@ export default function DolzDashboard({ token }: { token: string }) {
         </div>
       </header>
 
-      {error ? <section className={styles.errorBox}>{error}</section> : null}
-      {!data && loading ? <section className={styles.loadingBox}>Sťahujem históriu z Polygonu… prvé načítanie môže trvať aj minútu.</section> : null}
+      <nav className={styles.tabBar} role="tablist" aria-label="Sekcie">
+        <button type="button" role="tab" aria-selected={tab === "portfolio"} className={tab === "portfolio" ? styles.tabActive : styles.tab} onClick={() => setTab("portfolio")}>
+          Portfólio
+        </button>
+        <button type="button" role="tab" aria-selected={tab === "sniper"} className={tab === "sniper" ? styles.tabActive : styles.tab} onClick={() => setTab("sniper")}>
+          Sniper
+        </button>
+      </nav>
 
-      {totals ? (
+      {tab === "sniper" ? <SniperTab token={token} /> : null}
+
+      {tab === "portfolio" && error ? <section className={styles.errorBox}>{error}</section> : null}
+      {tab === "portfolio" && !data && loading ? <section className={styles.loadingBox}>Sťahujem históriu z Polygonu… prvé načítanie môže trvať aj minútu.</section> : null}
+
+      {tab === "portfolio" && totals ? (
         <>
           <section className={styles.metricsGrid}>
             <MetricCard label="Investované" value={valueOf(totals.investedUsd, totals.investedDolz)} detail={isUsd ? formatDolz(totals.investedDolz) : formatUsd(totals.investedUsd)} />
@@ -860,8 +758,6 @@ export default function DolzDashboard({ token }: { token: string }) {
               Sériové číslo v rámci tieru (napr. #1) môže cenu zvýšiť, s tým odhad nepočíta.
             </p>
           </section>
-
-          {sniper && data ? <SniperPanel sniper={sniper} checkedAt={data.generatedAt} /> : null}
 
           <section className={styles.panelFull}>
             <div className={styles.panelTitleRow}>

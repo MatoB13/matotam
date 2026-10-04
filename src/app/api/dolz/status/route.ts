@@ -1,16 +1,12 @@
-import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { isDolzAuthorized } from "../auth";
 import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
-import { getSniperStatus, getSniperWallet } from "@/app/lib/dolzSniper";
+import { getSniperWallet } from "@/app/lib/dolzSniper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 300;
-
-// SHA-256 of the owner's DOLZ dashboard token. The repo is public, so only the
-// hash lives here; the token itself was handed to the owner directly.
-const OWNER_TOKEN_SHA256 = "4743035dfd2a43e9bedb9fa13478798113e60e6ca4c86f20fe7367ef7b6abcf0";
 
 function unauthorized() {
   return NextResponse.json(
@@ -20,30 +16,17 @@ function unauthorized() {
 }
 
 export async function GET(request: NextRequest) {
-  // Any of the owner's private dashboard tokens unlocks this page.
-  const allowedTokens = [
-    process.env.DOLZ_DASHBOARD_TOKEN,
-    process.env.SENTIMENT_DASHBOARD_TOKEN,
-    process.env.STRIKEBOT_DASHBOARD_TOKEN,
-  ].filter((value): value is string => !!value);
-  const token = request.nextUrl.searchParams.get("token");
-
-  const matchesOwnerToken = !!token && createHash("sha256").update(token).digest("hex") === OWNER_TOKEN_SHA256;
-
-  if (!token || !(matchesOwnerToken || allowedTokens.includes(token))) {
+  if (!isDolzAuthorized(request)) {
     return unauthorized();
   }
 
   try {
     // Cards the sniper buys sit on its hot wallet, so track that wallet too.
-    const sniperWallet = await getSniperWallet();
+    const sniperWallet = await getSniperWallet(request.nextUrl.searchParams.get("token") ?? "");
     const wallets = configuredDolzWallets();
-    const [data, sniper] = await Promise.all([
-      getDolzReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets),
-      getSniperStatus(),
-    ]);
+    const data = await getDolzReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
     return NextResponse.json(
-      { ok: true, data, sniper },
+      { ok: true, data },
       { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } },
     );
   } catch (error) {
