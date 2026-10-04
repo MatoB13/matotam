@@ -7,7 +7,10 @@ import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
 import type { DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
 
 const RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
-const MAX_RULES = 10;
+const MAX_RULES = 20;
+
+// Seasons as cards carry them; numbered seasons first, then the special series.
+const SEASONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "Special Edition", "Off-Season"];
 
 const RARITY_LABELS: Record<string, string> = {
   "": "Akákoľvek rarita",
@@ -32,7 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
 type ApiResponse = { ok: boolean; sniper?: DolzSniperStatus | null; deployed?: boolean; reachable?: boolean; error?: string; updatedAt?: string };
 
 /** Form state: numbers stay as strings while the user types. */
-type RuleDraft = { id: number; enabled: boolean; card: string; min_rarity: string; max_price: string; max_serial: string };
+type RuleDraft = { id: number; enabled: boolean; card: string; min_rarity: string; season: string; max_price: string; max_serial: string };
 type ConfigDraft = { enabled: boolean; dry_run: boolean; daily_budget_usd: string; max_buys_per_day: string; rules: RuleDraft[] };
 
 let nextRuleId = 1;
@@ -60,6 +63,7 @@ function toDraft(config: DolzSniperConfig): ConfigDraft {
       enabled: rule.enabled !== false,
       card: rule.card ? catalogLabel(rule.card) : "",
       min_rarity: rule.min_rarity ?? "",
+      season: rule.season ?? "",
       max_price: String(rule.max_price),
       max_serial: rule.max_serial ? String(rule.max_serial) : "",
     })),
@@ -84,6 +88,7 @@ function fromDraft(draft: ConfigDraft) {
       enabled: rule.enabled,
       ...cardFromInput(rule.card),
       min_rarity: rule.min_rarity || null,
+      season: rule.season || null,
       max_price: rule.max_price,
       max_serial: rule.max_serial || null,
     })),
@@ -98,7 +103,8 @@ function formatUsd(value: number | null | undefined, digits = 2): string {
 function describe(rule: DolzSniperRule): string {
   const card = rule.card ? catalogLabel(rule.card) : "akákoľvek karta";
   const rarity = rule.min_rarity ? RARITY_LABELS[rule.min_rarity] : "akákoľvek rarita";
-  return `${card} · ${rarity}${rule.max_serial ? ` · sériové č. ≤ ${rule.max_serial}` : ""} do ${formatUsd(rule.max_price)}`;
+  const season = rule.season ? ` · ${/^\d+$/.test(rule.season) ? `Season ${rule.season}` : rule.season}` : "";
+  return `${card}${season} · ${rarity}${rule.max_serial ? ` · sériové č. ≤ ${rule.max_serial}` : ""} do ${formatUsd(rule.max_price)}`;
 }
 
 export default function SniperTab({ token }: { token: string }) {
@@ -152,7 +158,7 @@ export default function SniperTab({ token }: { token: string }) {
   const addRule = () => {
     setDraft((current) =>
       current && current.rules.length < MAX_RULES
-        ? { ...current, rules: [...current.rules, { id: nextRuleId++, enabled: true, card: "", min_rarity: "", max_price: "", max_serial: "" }] }
+        ? { ...current, rules: [...current.rules, { id: nextRuleId++, enabled: true, card: "", min_rarity: "", season: "", max_price: "", max_serial: "" }] }
         : current,
     );
     setDirty(true);
@@ -322,7 +328,7 @@ export default function SniperTab({ token }: { token: string }) {
           <h3 className={styles.subheading}>Pravidlá ({draft.rules.length}/{MAX_RULES})</h3>
           <p className={styles.chartNote}>
             Karta sa kúpi, keď spĺňa ktorékoľvek zapnuté pravidlo. Rarita je minimum: „Rare“ platí aj pre Epic a Legendary, „Epic“ aj pre Legendary.
-            Prázdna karta znamená akúkoľvek kartu.
+            Prázdna karta znamená akúkoľvek kartu, sezóna obmedzí pravidlo na karty z jednej sezóny.
           </p>
 
           <datalist id="dolz-cards">
@@ -338,6 +344,7 @@ export default function SniperTab({ token }: { token: string }) {
               <span>Zap.</span>
               <span>Karta</span>
               <span>Min. rarita</span>
+              <span>Sezóna</span>
               <span>Max. cena</span>
               <span>Max. sériové č.</span>
               <span />
@@ -369,6 +376,19 @@ export default function SniperTab({ token }: { token: string }) {
                   {RARITIES.map((rarity) => (
                     <option key={rarity} value={rarity}>
                       {RARITY_LABELS[rarity]}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  id={`rule-${rule.id}-season`}
+                  aria-label={`Pravidlo ${index + 1} sezóna`}
+                  value={rule.season}
+                  onChange={(event) => updateRule(rule.id, { season: event.target.value })}
+                >
+                  <option value="">Akákoľvek sezóna</option>
+                  {SEASONS.map((season) => (
+                    <option key={season} value={season}>
+                      {/^\d+$/.test(season) ? `Season ${season}` : season}
                     </option>
                   ))}
                 </select>

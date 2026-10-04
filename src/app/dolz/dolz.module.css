@@ -456,7 +456,7 @@
 
 .ruleRow {
   display: grid;
-  grid-template-columns: 28px minmax(0, 2.6fr) minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 0.8fr) 36px;
+  grid-template-columns: 28px minmax(0, 2.4fr) minmax(0, 1.4fr) minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.8fr) 36px;
   gap: 8px;
   align-items: center;
 }
@@ -666,7 +666,7 @@
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 36px;
     grid-template-areas:
       "on card card del"
-      ". rarity rarity rarity"
+      ". rarity season season"
       ". price serial serial";
     padding: 10px;
     border: 1px solid rgba(255, 255, 255, 0.10);
@@ -676,9 +676,10 @@
   .ruleRow > :nth-child(1) { grid-area: on; }
   .ruleRow > :nth-child(2) { grid-area: card; }
   .ruleRow > :nth-child(3) { grid-area: rarity; }
-  .ruleRow > :nth-child(4) { grid-area: price; }
-  .ruleRow > :nth-child(5) { grid-area: serial; }
-  .ruleRow > :nth-child(6) { grid-area: del; }
+  .ruleRow > :nth-child(4) { grid-area: season; }
+  .ruleRow > :nth-child(5) { grid-area: price; }
+  .ruleRow > :nth-child(6) { grid-area: serial; }
+  .ruleRow > :nth-child(7) { grid-area: del; }
 
   /* the SVG scales down roughly 2x at phone width */
   .axisText {

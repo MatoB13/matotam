@@ -27,7 +27,7 @@ export type DolzSniperEvent = {
 };
 
 export const SNIPER_RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
-export const SNIPER_MAX_RULES = 10;
+export const SNIPER_MAX_RULES = 20;
 
 export type DolzSniperRule = {
   enabled: boolean;
@@ -36,6 +36,8 @@ export type DolzSniperRule = {
   card_name?: string | null;
   /** Minimum rarity: Rare also covers Epic and Legendary. Null means any rarity. */
   min_rarity: (typeof SNIPER_RARITIES)[number] | null;
+  /** Season as cards carry it ("1" … "11", "Special Edition", "Off-Season"); null means any season. */
+  season?: string | null;
   max_price: number;
   max_serial?: number | null;
 };
