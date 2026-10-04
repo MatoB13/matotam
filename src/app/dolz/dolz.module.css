@@ -798,3 +798,22 @@
   width: 18px;
   height: 18px;
 }
+
+.offerList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.offerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.offerRow > span:first-child {
+  display: flex;
+  flex-direction: column;
+}

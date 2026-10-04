@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import styles from "./dolz.module.css";
-import type { DolzSellCard, DolzSellInventory, DolzSellResult } from "@/app/lib/dolzSniper";
+import type { DolzSellCard, DolzSellInventory, DolzSellOffer, DolzSellResult } from "@/app/lib/dolzSniper";
 
 const DEFAULT_DURATIONS = [1, 2, 3, 7, 30, 90, 180];
 const DEFAULT_DAYS = 30;
@@ -81,7 +81,7 @@ export default function SellPanel({ token }: { token: string }) {
     });
   const allSelected = cards.length > 0 && cards.every((card) => selected.has(card.token_id));
 
-  const submit = async (label: string, action: "list" | "cancel" | "transfer", payload: object) => {
+  const submit = async (label: string, action: "list" | "cancel" | "transfer" | "accept_offer" | "reject_offer", payload: object) => {
     setBusy(label);
     setError(null);
     try {
@@ -96,7 +96,7 @@ export default function SellPanel({ token }: { token: string }) {
         const next = { ...current };
         for (const result of json.results ?? []) {
           next[result.token_id] = result.ok
-            ? { ok: true, text: action === "cancel" ? "ponuka zrušená" : action === "transfer" ? "presunuté" : (result.action ?? "vystavené"), tx: result.tx }
+            ? { ok: true, text: action === "cancel" ? "ponuka zrušená" : (result.action ?? "vystavené"), tx: result.tx }
             : { ok: false, text: result.error ?? "zlyhalo", tx: result.tx };
         }
         return next;
@@ -130,6 +130,27 @@ export default function SellPanel({ token }: { token: string }) {
     if (items.length) void submit("bulk", "list", { items });
   };
 
+  const feeBps = inventory?.sellerFeeBps ?? null;
+  const afterFees = (usd: number | null) => (usd !== null && feeBps !== null ? usd * (1 - feeBps / 10_000) : null);
+
+  const acceptOffer = (card: DolzSellCard, offer: DolzSellOffer) => {
+    const net = afterFees(offer.price_usd);
+    const question =
+      `Predať ${cardTitle(card)} za ${formatUsd(offer.price_usd)}` +
+      (net !== null ? ` (po poplatkoch dostaneš ~${formatUsd(net)})` : "") +
+      `?\nKupujúci: ${offer.offerer}` +
+      (listingState(card, loadedAt) === "active" ? "\nTvoja ponuka na markete sa tým zruší." : "");
+    if (!window.confirm(question)) return;
+    void submit(card.token_id, "accept_offer", { token_id: card.token_id, offerer: offer.offerer, price_raw: offer.price_raw });
+  };
+
+  const rejectOffer = (card: DolzSellCard, offer: DolzSellOffer) => {
+    if (!window.confirm(`Odmietnuť ponuku ${formatUsd(offer.price_usd)} na ${cardTitle(card)}? Stojí to trochu POL; ponuka inak sama vyprší.`)) return;
+    void submit(card.token_id, "reject_offer", { token_id: card.token_id, offerer: offer.offerer });
+  };
+
+  const offerCount = cards.reduce((sum, card) => sum + (card.offers?.length ?? 0), 0);
+
   const transferTarget = inventory?.transferTargets?.[0] ?? null;
   const transferSelected = () => {
     const tokenIds = cards.filter((card) => selected.has(card.token_id)).map((card) => card.token_id);
@@ -157,6 +178,7 @@ export default function SellPanel({ token }: { token: string }) {
         <h2>Karty na hot wallete</h2>
         <span>
           {inventory ? `${cards.length} kariet · ${listedCount} na predaj` : ""}
+          {offerCount ? <strong className={styles.goodText}>{` · ${offerCount} ${offerCount === 1 ? "ponuka" : offerCount < 5 ? "ponuky" : "ponúk"} od kupcov`}</strong> : null}
           {loadedAt ? ` · ${new Date(loadedAt).toLocaleTimeString("sk-SK")}` : ""}
         </span>
       </div>
@@ -232,7 +254,8 @@ export default function SellPanel({ token }: { token: string }) {
               <th>Rarita</th>
               <th className={styles.num}>Kúpené</th>
               <th className={styles.num}>Trh</th>
-              <th>Ponuka</th>
+              <th>Vystavené</th>
+              <th>Ponuky kupcov</th>
               <th>Cena</th>
               <th>Trvanie</th>
               <th />
@@ -241,7 +264,7 @@ export default function SellPanel({ token }: { token: string }) {
           <tbody>
             {!cards.length ? (
               <tr>
-                <td colSpan={9} className={styles.emptyCell}>
+                <td colSpan={10} className={styles.emptyCell}>
                   {loading ? "Načítavam karty z hot walletu…" : "Na hot wallete nie sú žiadne karty."}
                 </td>
               </tr>
@@ -304,6 +327,48 @@ export default function SellPanel({ token }: { token: string }) {
                           )}
                         </small>
                       ) : null}
+                    </td>
+                    <td>
+                      {card.offers?.length ? (
+                        <span className={styles.offerList}>
+                          {card.offers.map((offer) => (
+                            <span key={offer.offerer} className={styles.offerRow}>
+                              <span title={`Od ${offer.offerer}`}>
+                                <strong className={offer.fundable === false ? styles.mutedText : styles.goodText}>
+                                  {offer.price_usd !== null ? formatUsd(offer.price_usd) : `${offer.price_raw} ${offer.currency}`}
+                                </strong>
+                                <small className={styles.mutedText}>
+                                  {afterFees(offer.price_usd) !== null ? ` · dostaneš ${formatUsd(afterFees(offer.price_usd))}` : ""}
+                                  {offer.expiration ? ` · do ${new Date(offer.expiration * 1000).toLocaleDateString("sk-SK")}` : ""}
+                                  {offer.fundable === false ? " · kupec nemá krytie" : ""}
+                                </small>
+                              </span>
+                              <span className={styles.sellActions}>
+                                <button
+                                  type="button"
+                                  className={styles.primaryButton}
+                                  onClick={() => acceptOffer(card, offer)}
+                                  disabled={!!busy || offer.fundable === false || offer.price_usd === null}
+                                >
+                                  {rowBusy ? "…" : "Prijať"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.iconButton}
+                                  onClick={() => rejectOffer(card, offer)}
+                                  disabled={!!busy}
+                                  aria-label={`Odmietnuť ponuku ${formatUsd(offer.price_usd)}`}
+                                  title="Odmietnuť (stojí gas, inak ponuka sama vyprší)"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className={styles.mutedText}>—</span>
+                      )}
                     </td>
                     <td>
                       <label className={`${styles.moneyInput} ${styles.sellPrice}`}>

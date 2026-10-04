@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildMarketBook } from "@/app/lib/dolzMarket";
-import { cancelSniperListings, getSniperInventory, listSniperCards, transferSniperCards } from "@/app/lib/dolzSniper";
+import { answerSniperOffer, cancelSniperListings, getSniperInventory, listSniperCards, transferSniperCards } from "@/app/lib/dolzSniper";
 import { isDolzAuthorized } from "../auth";
 
 export const runtime = "nodejs";
@@ -31,7 +31,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * `{items: [{token_id, price_usd, days}]}` lists or reprices; `?action=cancel` with `{token_ids}` cancels;
- * `?action=transfer` with `{token_ids, to}` moves cards to an allowed wallet.
+ * `?action=transfer` with `{token_ids, to}` moves cards to an allowed wallet;
+ * `?action=accept_offer` / `reject_offer` with `{token_id, offerer, price_raw}` answers an offer.
  */
 export async function POST(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
@@ -40,7 +41,9 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { items?: unknown; token_ids?: unknown; to?: unknown };
     const action = request.nextUrl.searchParams.get("action");
     const results =
-      action === "cancel"
+      action === "accept_offer" || action === "reject_offer"
+        ? await answerSniperOffer(token, action === "accept_offer" ? "accept" : "reject", body)
+        : action === "cancel"
         ? await cancelSniperListings(token, body.token_ids)
         : action === "transfer"
           ? await transferSniperCards(token, body.token_ids, body.to)

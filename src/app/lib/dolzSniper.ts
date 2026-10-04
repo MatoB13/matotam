@@ -126,6 +126,18 @@ export type DolzSellListing = {
   tx: string;
 };
 
+export type DolzSellOffer = {
+  offerer: string;
+  /** Exact on-chain amount; accepting sends it back so a changed offer is refused. */
+  price_raw: string;
+  currency: string;
+  price_usd: number | null;
+  /** Unix seconds. */
+  expiration: number | null;
+  /** Whether the offerer has the balance and allowance to pay it now (null: unknown). */
+  fundable: boolean | null;
+};
+
 export type DolzSellCard = {
   token_id: string;
   name: string | null;
@@ -138,6 +150,8 @@ export type DolzSellCard = {
   bought_usd: number | null;
   bought_at: string | null;
   listing: DolzSellListing | null;
+  /** Open offers from buyers, highest first. */
+  offers?: DolzSellOffer[];
   /** Market median for this card and tier (added by the dashboard). */
   market?: { usd: number; source: string; sales: number } | null;
 };
@@ -147,6 +161,8 @@ export type DolzSellInventory = {
   durations: number[];
   /** Wallets the sniper may move cards to (fixed on the sniper side). */
   transferTargets?: string[];
+  /** Platform + collection fee the seller pays, in basis points. */
+  sellerFeeBps?: number | null;
   cards: DolzSellCard[];
 };
 
@@ -171,6 +187,12 @@ export async function cancelSniperListings(token: string, tokenIds: unknown): Pr
 /** Move cards to one of the sniper's allowed wallets; open listings are cancelled first. */
 export async function transferSniperCards(token: string, tokenIds: unknown, to: unknown): Promise<DolzSellResult[]> {
   const json = await callSniper<{ results: DolzSellResult[] }>("/transfer", token, { method: "POST", body: JSON.stringify({ token_ids: tokenIds, to }) }, 280_000);
+  return json.results;
+}
+
+/** Accept (sell for the offer) or reject one offer on a hot-wallet card. */
+export async function answerSniperOffer(token: string, action: "accept" | "reject", offer: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>(`/offer/${action}`, token, { method: "POST", body: JSON.stringify(offer) }, 280_000);
   return json.results;
 }
 
