@@ -11,7 +11,19 @@ const RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
 const MAX_RULES = 20;
 
 // Seasons as cards carry them; numbered seasons first, then the special series.
-const SEASONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "Special Edition", "Off-Season"];
+const SEASONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "OG", "Special Edition", "Off-Season"];
+
+/** Known seasons plus any new one the sniper has seen on cards, numbered ones first. */
+function seasonOptions(catalog: CatalogCard[]): string[] {
+  const seasons = new Set(SEASONS);
+  for (const item of catalog) if (item.season) seasons.add(item.season);
+  return [...seasons].sort((a, b) => {
+    const [na, nb] = [Number(a), Number(b)];
+    if (Number.isInteger(na) && Number.isInteger(nb)) return na - nb;
+    if (Number.isInteger(na) !== Number.isInteger(nb)) return Number.isInteger(na) ? -1 : 1;
+    return SEASONS.indexOf(a) - SEASONS.indexOf(b) || a.localeCompare(b);
+  });
+}
 
 const RARITY_LABELS: Record<string, string> = {
   "": "Akákoľvek rarita",
@@ -135,6 +147,7 @@ export default function SniperTab({ token }: { token: string }) {
   const [availability, setAvailability] = useState<"loading" | "ok" | "not_deployed" | "unreachable">("loading");
   const [view, setView] = useState<SniperView>("settings");
   const catalog = useMemo(() => mergeCatalog(status?.catalog), [status]);
+  const seasons = useMemo(() => seasonOptions(catalog), [catalog]);
 
   const load = useCallback(
     async (resetDraft: boolean) => {
@@ -403,7 +416,7 @@ export default function SniperTab({ token }: { token: string }) {
                   onChange={(event) => updateRule(rule.id, { season: event.target.value })}
                 >
                   <option value="">Akákoľvek sezóna</option>
-                  {SEASONS.map((season) => (
+                  {seasons.map((season) => (
                     <option key={season} value={season}>
                       {/^\d+$/.test(season) ? `Season ${season}` : season}
                     </option>
