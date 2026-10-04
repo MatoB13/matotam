@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag, unstable_cache } from "next/cache";
+import { unstable_cache } from "next/cache";
 import { isDolzAuthorized } from "../auth";
 import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
 import { getSniperWallet } from "@/app/lib/dolzSniper";
@@ -13,10 +13,10 @@ const SNIPER_HOT_WALLET = "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6";
 
 const REPORT_TAG = "dolz-report";
 
-// The report takes tens of seconds to build, so page loads share one copy. After 10 minutes the
-// next load still gets the stored copy at once while a fresh one is built in the background.
+// The report takes tens of seconds to build, so page loads share one copy. Once it is older than
+// 3 minutes the next load still gets it at once while a fresh one is built in the background.
 const cachedReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v2"], {
-  revalidate: 600,
+  revalidate: 180,
   tags: [REPORT_TAG],
 });
 
@@ -37,8 +37,6 @@ export async function GET(request: NextRequest) {
     // plus whatever the sniper reports (in case its wallet is ever replaced).
     const sniperWallet = await getSniperWallet(request.nextUrl.searchParams.get("token") ?? "");
     const wallets = [...new Set([...configuredDolzWallets(), SNIPER_HOT_WALLET])];
-    // "Obnoviť" asks for a fresh report instead of the stored one.
-    if (request.nextUrl.searchParams.get("fresh") === "1") revalidateTag(REPORT_TAG, { expire: 0 });
     const data = await cachedReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
     return NextResponse.json(
       { ok: true, data },

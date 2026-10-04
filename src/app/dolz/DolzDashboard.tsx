@@ -367,7 +367,7 @@ export default function DolzDashboard({ token }: { token: string }) {
   const [unit, setUnit] = useState<Unit>("usd");
   const [activityFilter, setActivityFilter] = useState<"all" | "buy" | "sell" | "other">("all");
 
-  const loadData = useCallback(async (fresh = false) => {
+  const loadData = useCallback(async () => {
     if (!token) {
       setError("Chýba token v URL (?token=…).");
       return;
@@ -375,7 +375,7 @@ export default function DolzDashboard({ token }: { token: string }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/dolz/status?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`, { cache: "no-store" });
+      const response = await fetch(`/api/dolz/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
       const json = (await response.json()) as ApiResponse;
       if (!response.ok || !json.ok || !json.data) throw new Error(json.error || `HTTP ${response.status}`);
       setData(json.data);
@@ -540,7 +540,7 @@ export default function DolzDashboard({ token }: { token: string }) {
             <button className={isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("usd")}>USD</button>
             <button className={!isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("dolz")}>DOLZ</button>
           </div>
-          <button className={styles.refreshButton} onClick={() => void loadData(true)} disabled={loading}>
+          <button className={styles.refreshButton} onClick={() => void loadData()} disabled={loading}>
             {loading ? (data ? "Aktualizujem…" : "Načítavam…") : "Obnoviť"}
           </button>
           <p className={styles.updatedText}>
