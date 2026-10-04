@@ -9,11 +9,13 @@ export const dynamic = "force-dynamic";
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 300;
 
+const SNIPER_HOT_WALLET = "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6";
+
 const REPORT_TAG = "dolz-report";
 
 // The report takes tens of seconds to build, so page loads share one copy. After 10 minutes the
 // next load still gets the stored copy at once while a fresh one is built in the background.
-const cachedReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v1"], {
+const cachedReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v2"], {
   revalidate: 600,
   tags: [REPORT_TAG],
 });
@@ -31,9 +33,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Cards the sniper buys sit on its hot wallet, so track that wallet too.
+    // Cards the sniper buys sit on its hot wallet, so track that wallet too: the known address always,
+    // plus whatever the sniper reports (in case its wallet is ever replaced).
     const sniperWallet = await getSniperWallet(request.nextUrl.searchParams.get("token") ?? "");
-    const wallets = configuredDolzWallets();
+    const wallets = [...new Set([...configuredDolzWallets(), SNIPER_HOT_WALLET])];
     // "Obnoviť" asks for a fresh report instead of the stored one.
     if (request.nextUrl.searchParams.get("fresh") === "1") revalidateTag(REPORT_TAG, { expire: 0 });
     const data = await cachedReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
