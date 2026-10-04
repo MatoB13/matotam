@@ -50,6 +50,16 @@ export type DolzSniperConfig = {
   rules: DolzSniperRule[];
 };
 
+/** A card number the sniper has seen on the market, with its name. */
+export type DolzSniperCatalogCard = { card: string; name: string | null; season: string | null; seen: number };
+
+export type DolzSniperQuote = {
+  token_id: string;
+  card: { name: string | null; card: string | null; tier: string | null; serial: number | null; rarity: string | null; season: string | null; image?: string | null };
+  listing: { seller: string; price_raw: string; currency: string; price_usd: number | null; expiration: number | null; active: boolean } | null;
+  maxPriceUsd: number;
+};
+
 export type DolzSniperStatus = {
   wallet: string | null;
   heartbeat: string | null;
@@ -63,6 +73,7 @@ export type DolzSniperStatus = {
   spentTotalUsd: number;
   purchases: DolzSniperPurchase[];
   events: DolzSniperEvent[];
+  catalog?: DolzSniperCatalogCard[];
 };
 
 /** Public URL of the sniper service; DOLZ_SNIPER_URL overrides it. */
@@ -195,6 +206,17 @@ export async function transferSniperCards(token: string, tokenIds: unknown, to: 
 /** Accept (sell for the offer) or reject one offer on a hot-wallet card. */
 export async function answerSniperOffer(token: string, action: "accept" | "reject", offer: unknown): Promise<DolzSellResult[]> {
   const json = await callSniper<{ results: DolzSellResult[] }>(`/offer/${action}`, token, { method: "POST", body: JSON.stringify(offer) }, 280_000);
+  return json.results;
+}
+
+/** Card data and live listing for a dolz.io link or token id. */
+export async function quoteSniperBuy(token: string, link: unknown): Promise<DolzSniperQuote> {
+  return (await callSniper<{ quote: DolzSniperQuote }>("/quote", token, { method: "POST", body: JSON.stringify({ link }) }, 30_000)).quote;
+}
+
+/** Buy a listed card now at exactly the quoted price. */
+export async function sniperBuyNow(token: string, link: unknown, priceRaw: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>("/buy", token, { method: "POST", body: JSON.stringify({ link, price_raw: priceRaw }) }, 280_000);
   return json.results;
 }
 

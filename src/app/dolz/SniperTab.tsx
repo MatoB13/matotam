@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
+import QuickBuy from "./QuickBuy";
 import SellPanel from "./SellPanel";
 import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
-import type { DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
+import type { DolzSniperCatalogCard, DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
 
 const RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
 const MAX_RULES = 20;
@@ -47,12 +48,27 @@ const VIEWS: { id: SniperView; label: string }[] = [
   { id: "sell", label: "Predaj" },
 ];
 
-function catalogLabel(card: string): string {
-  const entry = DOLZ_CARD_CATALOG.find((item) => item.card === card.toLowerCase());
-  return entry ? `${entry.card} · ${entry.name.trim()}` : card;
+type CatalogCard = { card: string; name: string; season: string | null; tiers: string[] };
+
+/** Built-in catalog plus every card the sniper has seen on the market (newer cards included). */
+function mergeCatalog(seen: DolzSniperCatalogCard[] | undefined): CatalogCard[] {
+  const cards = new Map<string, CatalogCard>(
+    DOLZ_CARD_CATALOG.map((item) => [item.card, { card: item.card, name: item.name.trim(), season: item.season, tiers: Object.keys(item.tiers) }]),
+  );
+  for (const item of seen ?? []) {
+    const card = item.card?.toLowerCase();
+    if (card && item.name && !cards.has(card)) cards.set(card, { card, name: item.name.trim(), season: item.season, tiers: [] });
+  }
+  return [...cards.values()].sort((a, b) => a.card.localeCompare(b.card));
 }
 
-function toDraft(config: DolzSniperConfig): ConfigDraft {
+function catalogLabel(card: string, catalog: CatalogCard[], fallbackName?: string | null): string {
+  const entry = catalog.find((item) => item.card === card.toLowerCase());
+  const name = entry?.name ?? fallbackName?.trim();
+  return name ? `${card.toLowerCase()} · ${name}` : card;
+}
+
+function toDraft(config: DolzSniperConfig, catalog: CatalogCard[]): ConfigDraft {
   return {
     enabled: config.enabled,
     dry_run: config.dry_run,
@@ -61,7 +77,7 @@ function toDraft(config: DolzSniperConfig): ConfigDraft {
     rules: config.rules.map((rule) => ({
       id: nextRuleId++,
       enabled: rule.enabled !== false,
-      card: rule.card ? catalogLabel(rule.card) : "",
+      card: rule.card ? catalogLabel(rule.card, catalog, rule.card_name) : "",
       min_rarity: rule.min_rarity ?? "",
       season: rule.season ?? "",
       max_price: String(rule.max_price),
@@ -71,14 +87,14 @@ function toDraft(config: DolzSniperConfig): ConfigDraft {
 }
 
 /** "g0177 · Lea PAM - …" or "g0177" -> "g0177"; empty -> any card. */
-function cardFromInput(value: string): { card: string | null; card_name: string | null } {
+function cardFromInput(value: string, catalog: CatalogCard[]): { card: string | null; card_name: string | null } {
   const match = value.trim().toLowerCase().match(/^g\d{3,5}/);
   if (!match) return { card: null, card_name: null };
-  const entry = DOLZ_CARD_CATALOG.find((item) => item.card === match[0]);
-  return { card: match[0], card_name: entry?.name.trim() ?? null };
+  const entry = catalog.find((item) => item.card === match[0]);
+  return { card: match[0], card_name: entry?.name ?? null };
 }
 
-function fromDraft(draft: ConfigDraft) {
+function fromDraft(draft: ConfigDraft, catalog: CatalogCard[]) {
   return {
     enabled: draft.enabled,
     dry_run: draft.dry_run,
@@ -86,7 +102,7 @@ function fromDraft(draft: ConfigDraft) {
     max_buys_per_day: draft.max_buys_per_day,
     rules: draft.rules.map((rule) => ({
       enabled: rule.enabled,
-      ...cardFromInput(rule.card),
+      ...cardFromInput(rule.card, catalog),
       min_rarity: rule.min_rarity || null,
       season: rule.season || null,
       max_price: rule.max_price,
@@ -100,8 +116,8 @@ function formatUsd(value: number | null | undefined, digits = 2): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
-function describe(rule: DolzSniperRule): string {
-  const card = rule.card ? catalogLabel(rule.card) : "akákoľvek karta";
+function describe(rule: DolzSniperRule, catalog: CatalogCard[]): string {
+  const card = rule.card ? catalogLabel(rule.card, catalog, rule.card_name) : "akákoľvek karta";
   const rarity = rule.min_rarity ? RARITY_LABELS[rule.min_rarity] : "akákoľvek rarita";
   const season = rule.season ? ` · ${/^\d+$/.test(rule.season) ? `Season ${rule.season}` : rule.season}` : "";
   return `${card}${season} · ${rarity}${rule.max_serial ? ` · sériové č. ≤ ${rule.max_serial}` : ""} do ${formatUsd(rule.max_price)}`;
@@ -118,6 +134,7 @@ export default function SniperTab({ token }: { token: string }) {
   const [checkedAt, setCheckedAt] = useState<number>(0);
   const [availability, setAvailability] = useState<"loading" | "ok" | "not_deployed" | "unreachable">("loading");
   const [view, setView] = useState<SniperView>("settings");
+  const catalog = useMemo(() => mergeCatalog(status?.catalog), [status]);
 
   const load = useCallback(
     async (resetDraft: boolean) => {
@@ -128,7 +145,7 @@ export default function SniperTab({ token }: { token: string }) {
         setStatus(json.sniper ?? null);
         setAvailability(json.sniper ? "ok" : json.deployed ? "unreachable" : "not_deployed");
         setCheckedAt(Date.now());
-        if (json.sniper && resetDraft) setDraft(toDraft(json.sniper.config));
+        if (json.sniper && resetDraft) setDraft(toDraft(json.sniper.config, mergeCatalog(json.sniper.catalog)));
         setError(null);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať snipera.");
@@ -176,11 +193,11 @@ export default function SniperTab({ token }: { token: string }) {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(fromDraft(draft)),
+        body: JSON.stringify(fromDraft(draft, catalog)),
       });
       const json = (await response.json()) as ApiResponse & { config?: DolzSniperConfig };
       if (!response.ok || !json.ok || !json.config) throw new Error(json.error || `HTTP ${response.status}`);
-      setDraft(toDraft(json.config));
+      setDraft(toDraft(json.config, catalog));
       setDirty(false);
       setSavedAt(json.updatedAt ?? null);
       void load(false);
@@ -255,7 +272,7 @@ export default function SniperTab({ token }: { token: string }) {
         {savedRules.length ? (
           <ul className={styles.ruleList}>
             {savedRules.map((rule, index) => (
-              <li key={index}>{describe(rule)}</li>
+              <li key={index}>{describe(rule, catalog)}</li>
             ))}
           </ul>
         ) : null}
@@ -332,9 +349,9 @@ export default function SniperTab({ token }: { token: string }) {
           </p>
 
           <datalist id="dolz-cards">
-            {DOLZ_CARD_CATALOG.map((item) => (
-              <option key={item.card} value={`${item.card} · ${item.name.trim()}`}>
-                {`S${item.season ?? "?"} · tiery ${Object.keys(item.tiers).join(", ")}`}
+            {catalog.map((item) => (
+              <option key={item.card} value={`${item.card} · ${item.name}`}>
+                {`S${item.season ?? "?"}${item.tiers.length ? ` · tiery ${item.tiers.join(", ")}` : ""}`}
               </option>
             ))}
           </datalist>
@@ -438,6 +455,8 @@ export default function SniperTab({ token }: { token: string }) {
       ) : null}
 
       {view === "sell" ? <SellPanel token={token} /> : null}
+
+      {view === "purchases" ? <QuickBuy token={token} onBought={() => void load(false)} /> : null}
 
       {view === "purchases" ? (
       <section className={styles.panelFull}>
