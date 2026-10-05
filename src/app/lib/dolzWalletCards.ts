@@ -30,6 +30,10 @@ export type DolzWalletCard = {
   rarity: string | null;
   serial: string | null;
   valueUsd: number | null;
+  /** What the card cost when it was bought or minted (USD; DOLZ payments at that day's rate), from the portfolio. */
+  costUsd?: number | null;
+  /** How it was acquired: dolz-market, opensea, mint, card, auction, free. */
+  channel?: string | null;
 };
 
 type BlockscoutNft = {

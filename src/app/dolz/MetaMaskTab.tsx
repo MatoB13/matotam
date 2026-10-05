@@ -19,7 +19,27 @@ const CARDS_STORAGE_KEY = "dolz-mm-cards-v1";
 // The portfolio tab keeps its last report here; its holdings name cards Blockscout has no metadata for.
 const REPORT_STORAGE_KEY = "dolz-report-v1";
 
-type ReportHolding = { token: string; id: string; name: string | null; card: string | null; tier: string | null; rarity: string | null; serial: string | null; valueUsd: number };
+type ReportHolding = {
+  token: string;
+  id: string;
+  name: string | null;
+  card: string | null;
+  tier: string | null;
+  rarity: string | null;
+  serial: string | null;
+  valueUsd: number;
+  costUsd: number;
+  channel: string;
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+  "dolz-market": "DOLZ market",
+  opensea: "OpenSea",
+  mint: "mint",
+  card: "kartou",
+  auction: "aukcia",
+  free: "zadarmo",
+};
 
 function readStorage<T>(key: string): T | null {
   try {
@@ -46,6 +66,8 @@ function enrich(cards: DolzWalletCard[]): DolzWalletCard[] {
         rarity: card.rarity ?? holding.rarity,
         serial: card.serial ?? holding.serial,
         valueUsd: holding.valueUsd ?? card.valueUsd,
+        costUsd: holding.costUsd,
+        channel: holding.channel,
       };
     })
     .sort(
@@ -308,6 +330,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
                 </th>
                 <th>Karta</th>
                 <th>Rarita</th>
+                <th className={styles.num}>Kúpené</th>
                 <th className={styles.num}>Odhad</th>
                 <th />
               </tr>
@@ -315,7 +338,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
             <tbody>
               {!visible.length ? (
                 <tr>
-                  <td colSpan={5} className={styles.emptyCell}>
+                  <td colSpan={6} className={styles.emptyCell}>
                     {loading ? "Načítavam karty z blockchainu…" : filter ? "Nič nezodpovedá filtru." : "V tomto wallete nie sú žiadne DOLZ karty."}
                   </td>
                 </tr>
@@ -337,6 +360,10 @@ export default function MetaMaskTab({ token }: { token: string }) {
                       <td>
                         {[card.rarity, card.tier ? `/${card.tier}` : null].filter(Boolean).join(" ") || "—"}
                         {card.serial ? <small className={styles.mutedText}> · #{card.serial}</small> : null}
+                      </td>
+                      <td className={styles.num} title={card.channel ? `Získané: ${CHANNEL_LABELS[card.channel] ?? card.channel}` : undefined}>
+                        {card.costUsd != null ? `$${card.costUsd.toFixed(2)}` : "—"}
+                        {card.channel ? <small className={styles.mutedText}> · {CHANNEL_LABELS[card.channel] ?? card.channel}</small> : null}
                       </td>
                       <td className={styles.num}>{card.valueUsd != null ? `$${card.valueUsd.toFixed(2)}` : "—"}</td>
                       <td>
