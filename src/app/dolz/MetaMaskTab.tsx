@@ -221,7 +221,15 @@ export default function MetaMaskTab({ token }: { token: string }) {
             {loading ? "Načítavam…" : "Obnoviť"}
           </button>
         </div>
-        {notice ? <p className={notice.ok ? styles.goodText : styles.badText}>{notice.text}</p> : null}
+        {notice ? (
+          // Fixed to the bottom of the screen, so the result shows next to whichever row was clicked.
+          <div className={`${styles.toast} ${notice.ok ? styles.toastOk : styles.toastBad}`} role="status">
+            <span>{notice.text}</span>
+            <button type="button" className={styles.iconButton} onClick={() => setNotice(null)} aria-label="Zavrieť">
+              ✕
+            </button>
+          </div>
+        ) : null}
 
         <div className={styles.tableWrap}>
           <table className={styles.sellTable}>

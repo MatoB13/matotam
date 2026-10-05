@@ -822,3 +822,35 @@
 .quickBuyInput {
   flex: 1 1 320px;
 }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 50;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(640px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #0b1610;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+}
+
+.toast > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.toastOk {
+  border: 1px solid rgba(69, 239, 108, 0.6);
+  color: #c9ffd6;
+}
+
+.toastBad {
+  border: 1px solid rgba(255, 111, 111, 0.7);
+  color: #ffd0d0;
+}
