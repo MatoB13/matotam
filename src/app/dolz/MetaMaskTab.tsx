@@ -15,6 +15,46 @@ type Eip1193 = {
 type RpcError = { code?: number; message?: string };
 
 const POLYGON = "0x89";
+const CARDS_STORAGE_KEY = "dolz-mm-cards-v1";
+// The portfolio tab keeps its last report here; its holdings name cards Blockscout has no metadata for.
+const REPORT_STORAGE_KEY = "dolz-report-v1";
+
+type ReportHolding = { token: string; id: string; name: string | null; card: string | null; tier: string | null; rarity: string | null; serial: string | null; valueUsd: number };
+
+function readStorage<T>(key: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fill names, rarity and value from the stored portfolio report, then sort by card name and serial. */
+function enrich(cards: DolzWalletCard[]): DolzWalletCard[] {
+  const holdings = readStorage<{ holdings?: ReportHolding[] }>(REPORT_STORAGE_KEY)?.holdings ?? [];
+  const byKey = new Map(holdings.map((holding) => [`${holding.token.toLowerCase()}:${holding.id}`, holding]));
+  return cards
+    .map((card) => {
+      const holding = byKey.get(`${card.contract}:${card.id}`);
+      if (!holding) return card;
+      return {
+        ...card,
+        name: card.name ?? holding.name?.trim() ?? null,
+        card: card.card ?? holding.card,
+        tier: card.tier ?? holding.tier,
+        rarity: card.rarity ?? holding.rarity,
+        serial: card.serial ?? holding.serial,
+        valueUsd: holding.valueUsd ?? card.valueUsd,
+      };
+    })
+    .sort(
+      (a, b) =>
+        (a.name ?? "\uffff").localeCompare(b.name ?? "\uffff", "sk") ||
+        Number(a.serial ?? Infinity) - Number(b.serial ?? Infinity) ||
+        Number(a.id) - Number(b.id),
+    );
+}
 const SAFE_TRANSFER_FROM = "0x42842e0e"; // safeTransferFrom(address,address,uint256)
 
 function provider(): Eip1193 | null {
@@ -85,8 +125,13 @@ export default function MetaMaskTab({ token }: { token: string }) {
       if (!response.ok || !json.ok || !json.cards) throw new Error(json.error || `HTTP ${response.status}`);
       setAddress(json.address ?? null);
       setTarget(json.target ?? null);
-      setCards(json.cards);
+      setCards(enrich(json.cards));
       setError(null);
+      try {
+        window.localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify({ address: json.address, target: json.target, cards: json.cards }));
+      } catch {
+        // Storage full or blocked: the list just loads from the server next time.
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať karty.");
     } finally {
@@ -95,7 +140,16 @@ export default function MetaMaskTab({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    const id = window.setTimeout(() => void load(), 0);
+    const id = window.setTimeout(() => {
+      // Show the last list at once while the current one loads.
+      const stored = readStorage<{ address?: string; target?: string; cards?: DolzWalletCard[] }>(CARDS_STORAGE_KEY);
+      if (stored?.cards) {
+        setAddress((current) => current ?? stored.address ?? null);
+        setTarget((current) => current ?? stored.target ?? null);
+        setCards((current) => (current.length ? current : enrich(stored.cards ?? [])));
+      }
+      void load();
+    }, 0);
     return () => window.clearTimeout(id);
   }, [load]);
 
