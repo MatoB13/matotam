@@ -893,12 +893,12 @@ export function configuredDolzWallets(): string[] {
 }
 
 // DOLZ NFT collections seen on the tracked wallets.
-const DOLZ_NFT_CONTRACTS: Record<string, string> = {
+export const DOLZ_NFT_CONTRACTS: Record<string, string> = {
   "0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc": "DolzNFT",
   "0x1763bfe8c14f0cc3f7f462a9e19e57578f334dc3": "DOLZ x iStripper",
   "0x7906fddf30af0d1379ab7ec8feb2fb539e30196b": "DOLZ x iStripper",
 };
-const GAP_FILL_FROM_BLOCK = 70_000_000; // well before the first DOLZ activity (July 2025)
+export const GAP_FILL_FROM_BLOCK = 70_000_000; // well before the first DOLZ activity (July 2025)
 
 function decodeProxyInput(input: string): Pick<RawTxDetail, "proxyCoin" | "proxyAmount"> {
   if (!input.startsWith(PROXY_SELECTOR) || input.length < 10 + 64 * 3) return { proxyCoin: null, proxyAmount: null };

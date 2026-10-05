@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
 import { isDolzAuthorized } from "../auth";
-import { configuredDolzWallets, getDolzReport } from "@/app/lib/dolzPortfolio";
+import { cachedDolzReport, portfolioWallets } from "@/app/lib/dolzWalletCards";
 import { getSniperWallet } from "@/app/lib/dolzSniper";
 
 export const runtime = "nodejs";
@@ -9,17 +8,6 @@ export const runtime = "nodejs";
 // route. The handler reads the request, so it is rendered per request anyway.
 // First load walks the full Blockscout history; later loads hit the fetch cache.
 export const maxDuration = 300;
-
-const SNIPER_HOT_WALLET = "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6";
-
-const REPORT_TAG = "dolz-report";
-
-// The report takes tens of seconds to build, so page loads share one copy. Once it is older than
-// 3 minutes the next load still gets it at once while a fresh one is built in the background.
-const cachedReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v2"], {
-  revalidate: 180,
-  tags: [REPORT_TAG],
-});
 
 function unauthorized() {
   return NextResponse.json(
@@ -34,11 +22,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Cards the sniper buys sit on its hot wallet, so track that wallet too: the known address always,
-    // plus whatever the sniper reports (in case its wallet is ever replaced).
+    // Cards the sniper buys sit on its hot wallet, so the portfolio covers that wallet too.
     const sniperWallet = await getSniperWallet(request.nextUrl.searchParams.get("token") ?? "");
-    const wallets = [...new Set([...configuredDolzWallets(), SNIPER_HOT_WALLET])];
-    const data = await cachedReport(sniperWallet && !wallets.includes(sniperWallet) ? [...wallets, sniperWallet] : wallets);
+    const data = await cachedDolzReport(portfolioWallets(sniperWallet));
     return NextResponse.json(
       { ok: true, data },
       { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } },

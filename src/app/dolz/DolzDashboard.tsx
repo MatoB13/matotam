@@ -3,6 +3,7 @@
 import { PointerEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
 import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/dolzPortfolio";
+import MetaMaskTab from "./MetaMaskTab";
 import SniperTab from "./SniperTab";
 
 type ApiResponse = { ok: boolean; data?: DolzReport; error?: string };
@@ -361,7 +362,7 @@ function MetricCard({ label, value, detail, className }: { label: string; value:
 
 export default function DolzDashboard({ token }: { token: string }) {
   const [data, setData] = useState<DolzReport | null>(null);
-  const [tab, setTab] = useState<"portfolio" | "sniper">("portfolio");
+  const [tab, setTab] = useState<"portfolio" | "sniper" | "metamask">("portfolio");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [unit, setUnit] = useState<Unit>("usd");
@@ -556,9 +557,13 @@ export default function DolzDashboard({ token }: { token: string }) {
         <button type="button" role="tab" aria-selected={tab === "sniper"} className={tab === "sniper" ? styles.tabActive : styles.tab} onClick={() => setTab("sniper")}>
           Sniper
         </button>
+        <button type="button" role="tab" aria-selected={tab === "metamask"} className={tab === "metamask" ? styles.tabActive : styles.tab} onClick={() => setTab("metamask")}>
+          MetaMask karty
+        </button>
       </nav>
 
       {tab === "sniper" ? <SniperTab token={token} /> : null}
+      {tab === "metamask" ? <MetaMaskTab token={token} /> : null}
 
       {tab === "portfolio" && error ? <section className={styles.errorBox}>{error}</section> : null}
       {tab === "portfolio" && !data && loading ? <section className={styles.loadingBox}>Sťahujem históriu z Polygonu… prvé načítanie môže trvať aj minútu.</section> : null}
