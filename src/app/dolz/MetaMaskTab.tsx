@@ -46,26 +46,10 @@ async function waitForReceipt(eth: Eip1193, hash: string): Promise<boolean> {
   throw new Error("Transakcia sa zatiaľ nepotvrdila, skontroluj ju v MetaMasku.");
 }
 
-/** wallet_sendCalls (EIP-5792): one MetaMask confirmation for the whole batch, where the wallet supports it. */
-async function sendBatch(eth: Eip1193, from: string, calls: ReturnType<typeof transferCall>[]): Promise<boolean> {
-  const result = (await eth.request({
-    method: "wallet_sendCalls",
-    params: [{ version: "2.0.0", chainId: POLYGON, from, atomicRequired: true, calls }],
-  })) as { id: string } | string;
-  const id = typeof result === "string" ? result : result.id;
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    const status = (await eth.request({ method: "wallet_getCallsStatus", params: [id] }).catch(() => null)) as { status?: number | string } | null;
-    const code = Number(status?.status);
-    if (code === 200 || status?.status === "CONFIRMED") return true;
-    if (code >= 400) return false;
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  throw new Error("Hromadný presun sa zatiaľ nepotvrdil, skontroluj ho v MetaMasku.");
-}
-
-function batchUnsupported(error: unknown): boolean {
-  const rpc = error as RpcError;
-  return [4100, 4200, 5700, 5710, 5750, -32601, -32602].includes(Number(rpc?.code)) || /not supported|unsupported|does not exist/i.test(rpc?.message ?? "");
+/** Gas for one transfer with headroom; a revert here carries the contract's reason before MetaMask opens. */
+async function estimateGas(eth: Eip1193, tx: { from: string; to: string; data: string; value: string }): Promise<string> {
+  const estimate = (await eth.request({ method: "eth_estimateGas", params: [tx] })) as string;
+  return `0x${((BigInt(estimate) * 13n) / 10n + 10_000n).toString(16)}`;
 }
 
 export default function MetaMaskTab({ token }: { token: string }) {
@@ -130,6 +114,13 @@ export default function MetaMaskTab({ token }: { token: string }) {
     if (!address || !target || !ids.length) return;
     setBusy(label);
     setNotice(null);
+    // Cards already moved stay moved even if a later one in the batch fails or is rejected.
+    const moved: string[] = [];
+    const dropMoved = () => {
+      if (!moved.length) return;
+      setCards((current) => current.filter((card) => !moved.includes(`${card.contract}:${card.id}`)));
+      setSelected((current) => new Set([...current].filter((key) => !moved.includes(key))));
+    };
     try {
       const connected = await connect();
       if (!connected) return;
@@ -140,30 +131,25 @@ export default function MetaMaskTab({ token }: { token: string }) {
       }
       const chosen = cards.filter((card) => ids.includes(`${card.contract}:${card.id}`));
       const calls = chosen.map((card) => transferCall(card, from, target));
-      let moved: string[] = [];
-      if (calls.length > 1) {
+      // One MetaMask confirmation per card, in order; a rejection or failure stops the rest.
+      for (const [index, call] of calls.entries()) {
+        setNotice({ ok: true, text: calls.length > 1 ? `Podpíš v MetaMasku kartu ${index + 1} z ${calls.length}…` : "Podpíš presun v MetaMasku…" });
+        const tx = { from, ...call };
+        let gas: string;
         try {
-          setNotice({ ok: true, text: `Potvrď v MetaMasku presun ${calls.length} kariet jednou transakciou…` });
-          if (await sendBatch(eth, from, calls)) moved = ids;
-          else throw new Error("Hromadný presun neprešiel.");
-        } catch (batchError) {
-          if (!batchUnsupported(batchError)) throw batchError;
-          // The wallet cannot batch: one confirmation per card instead.
+          gas = await estimateGas(eth, tx);
+        } catch (estimateError) {
+          throw new Error(`Karta #${chosen[index].id} sa nedá presunúť: ${errorText(estimateError)}`);
         }
+        const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ ...tx, gas }] })) as string;
+        if (!(await waitForReceipt(eth, hash))) throw new Error(`Presun karty #${chosen[index].id} neprešiel.`);
+        moved.push(`${chosen[index].contract}:${chosen[index].id}`);
       }
-      if (!moved.length) {
-        for (const [index, call] of calls.entries()) {
-          setNotice({ ok: true, text: calls.length > 1 ? `Podpíš v MetaMasku kartu ${index + 1} z ${calls.length}…` : "Podpíš presun v MetaMasku…" });
-          const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from, ...call }] })) as string;
-          if (!(await waitForReceipt(eth, hash))) throw new Error(`Presun karty #${chosen[index].id} neprešiel.`);
-          moved.push(`${chosen[index].contract}:${chosen[index].id}`);
-        }
-      }
-      setCards((current) => current.filter((card) => !moved.includes(`${card.contract}:${card.id}`)));
-      setSelected((current) => new Set([...current].filter((key) => !moved.includes(key))));
+      dropMoved();
       setNotice({ ok: true, text: `Presunuté na ${short(target)}: ${moved.length} ${moved.length === 1 ? "karta" : moved.length < 5 ? "karty" : "kariet"}.` });
     } catch (transferError) {
-      setNotice({ ok: false, text: errorText(transferError) });
+      dropMoved();
+      setNotice({ ok: false, text: (moved.length ? `Presunuté ${moved.length}, potom: ` : "") + errorText(transferError) });
     } finally {
       setBusy(null);
     }
@@ -195,7 +181,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
         </div>
         <p className={styles.chartNote}>
           Presun posiela karty na Rabby wallet {target ? <code>{target}</code> : "…"}. Každý presun podpisuješ sám v MetaMasku, stránka nemá žiadny kľúč.
-          Pri hromadnom presune MetaMask, ak to vie, ponúkne jednu transakciu pre všetky karty, inak potvrdíš každú kartu zvlášť.
+          Pri hromadnom presune potvrdíš v MetaMasku každú kartu zvlášť, jednu po druhej.
           Kartu vystavenú na markete najprv stiahni z predaja na dolz.io, inak by ponuka ostala visieť.
         </p>
         {error ? <p className={styles.badText}>{error}</p> : null}
