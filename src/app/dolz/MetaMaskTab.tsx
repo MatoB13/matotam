@@ -46,6 +46,19 @@ async function waitForReceipt(eth: Eip1193, hash: string): Promise<boolean> {
   throw new Error("Transakcia sa zatiaľ nepotvrdila, skontroluj ju v MetaMasku.");
 }
 
+/**
+ * Polygon fees spelled out, the way the sniper sends: nodes refuse a priority fee under ~25 gwei, and
+ * MetaMask's own suggestion on Polygon can fall below that, so the transaction never gets broadcast.
+ */
+async function polygonFees(eth: Eip1193): Promise<{ maxFeePerGas: string; maxPriorityFeePerGas: string }> {
+  const block = (await eth.request({ method: "eth_getBlockByNumber", params: ["latest", false] })) as { baseFeePerGas?: string };
+  const base = BigInt(block?.baseFeePerGas ?? "0x0");
+  const suggested = BigInt(((await eth.request({ method: "eth_maxPriorityFeePerGas" }).catch(() => "0x0")) as string) || "0x0");
+  const floor = 40n * 10n ** 9n;
+  const priority = suggested > floor ? suggested : floor;
+  return { maxFeePerGas: `0x${(base * 2n + priority).toString(16)}`, maxPriorityFeePerGas: `0x${priority.toString(16)}` };
+}
+
 /** Gas for one transfer with headroom; a revert here carries the contract's reason before MetaMask opens. */
 async function estimateGas(eth: Eip1193, tx: { from: string; to: string; data: string; value: string }): Promise<string> {
   const estimate = (await eth.request({ method: "eth_estimateGas", params: [tx] })) as string;
@@ -141,7 +154,8 @@ export default function MetaMaskTab({ token }: { token: string }) {
         } catch (estimateError) {
           throw new Error(`Karta #${chosen[index].id} sa nedá presunúť: ${errorText(estimateError)}`);
         }
-        const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ ...tx, gas }] })) as string;
+        const fees = await polygonFees(eth);
+        const hash = (await eth.request({ method: "eth_sendTransaction", params: [{ ...tx, gas, ...fees }] })) as string;
         if (!(await waitForReceipt(eth, hash))) throw new Error(`Presun karty #${chosen[index].id} neprešiel.`);
         moved.push(`${chosen[index].contract}:${chosen[index].id}`);
       }
