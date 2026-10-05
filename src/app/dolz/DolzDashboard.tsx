@@ -3,6 +3,7 @@
 import { PointerEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
 import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/dolzPortfolio";
+import MissingCardsTab from "./MissingCardsTab";
 import MetaMaskTab from "./MetaMaskTab";
 import SniperTab from "./SniperTab";
 
@@ -362,7 +363,7 @@ function MetricCard({ label, value, detail, className }: { label: string; value:
 
 export default function DolzDashboard({ token }: { token: string }) {
   const [data, setData] = useState<DolzReport | null>(null);
-  const [tab, setTab] = useState<"portfolio" | "sniper" | "metamask">("portfolio");
+  const [tab, setTab] = useState<"portfolio" | "sniper" | "metamask" | "missing">("portfolio");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [unit, setUnit] = useState<Unit>("usd");
@@ -560,10 +561,14 @@ export default function DolzDashboard({ token }: { token: string }) {
         <button type="button" role="tab" aria-selected={tab === "metamask"} className={tab === "metamask" ? styles.tabActive : styles.tab} onClick={() => setTab("metamask")}>
           MetaMask karty
         </button>
+        <button type="button" role="tab" aria-selected={tab === "missing"} className={tab === "missing" ? styles.tabActive : styles.tab} onClick={() => setTab("missing")}>
+          Chýbajúce karty
+        </button>
       </nav>
 
       {tab === "sniper" ? <SniperTab token={token} /> : null}
       {tab === "metamask" ? <MetaMaskTab token={token} /> : null}
+      {tab === "missing" ? <MissingCardsTab token={token} /> : null}
 
       {tab === "portfolio" && error ? <section className={styles.errorBox}>{error}</section> : null}
       {tab === "portfolio" && !data && loading ? <section className={styles.loadingBox}>Sťahujem históriu z Polygonu… prvé načítanie môže trvať aj minútu.</section> : null}

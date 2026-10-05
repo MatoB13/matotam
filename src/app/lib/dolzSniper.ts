@@ -220,6 +220,38 @@ export async function sniperBuyNow(token: string, link: unknown, priceRaw: unkno
   return json.results;
 }
 
+export type DolzCollectionFloor = {
+  token_id: string;
+  price_usd: number;
+  price_raw: string;
+  rarity: string | null;
+  tier: string | null;
+  serial: number | null;
+  listings: number;
+};
+
+export type DolzCollection = {
+  updatedAt: string;
+  wallets: string[];
+  tokens: number;
+  owned: { card: string; name: string | null; season: string | null; count: number; wallets: Record<string, number> }[];
+  /** Held tokens whose card number is not known yet. */
+  unknownTokens: string[];
+  catalog: { card: string; name: string | null; season: string | null }[];
+  /** Cheapest live listing per card number. */
+  floors: Record<string, DolzCollectionFloor>;
+};
+
+/** Which cards the owner holds and the market floor per card, refreshed by the sniper every 10 minutes. */
+export async function getSniperCollection(token: string): Promise<{ collection: DolzCollection | null; refreshing: boolean }> {
+  const json = await callSniper<{ collection: DolzCollection | null; refreshing: boolean }>("/collection", token, undefined, 20_000);
+  return { collection: json.collection, refreshing: json.refreshing };
+}
+
+export async function requestCollectionRefresh(token: string): Promise<void> {
+  await callSniper<Record<string, never>>("/collection/refresh", token, { method: "POST", body: "{}" });
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }

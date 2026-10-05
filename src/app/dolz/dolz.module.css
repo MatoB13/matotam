@@ -336,6 +336,13 @@
   gap: 4px;
   margin: 0 0 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  overflow-x: auto; /* four tabs do not fit a phone */
+  scrollbar-width: none;
+}
+
+.tabBar > button {
+  white-space: nowrap;
+  flex: none;
 }
 
 .tab,
@@ -853,4 +860,24 @@
 .toastBad {
   border: 1px solid rgba(255, 111, 111, 0.7);
   color: #ffd0d0;
+}
+
+.groupRow {
+  padding-top: 18px !important;
+  color: #45ef6c !important;
+  text-align: left;
+}
+
+.switchInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c9d6cf;
+  font-size: 14px;
+}
+
+.switchInline input {
+  width: 18px;
+  height: 18px;
+  accent-color: #45ef6c;
 }
