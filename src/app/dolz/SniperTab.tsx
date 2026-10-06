@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
+import OfferPanel from "./OfferPanel";
 import QuickBuy from "./QuickBuy";
 import SellPanel from "./SellPanel";
 import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
@@ -470,6 +471,7 @@ export default function SniperTab({ token }: { token: string }) {
       {view === "sell" ? <SellPanel token={token} /> : null}
 
       {view === "purchases" ? <QuickBuy token={token} onBought={() => void load(false)} /> : null}
+      {view === "purchases" ? <OfferPanel token={token} /> : null}
 
       {view === "purchases" ? (
       <section className={styles.panelFull}>

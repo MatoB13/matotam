@@ -252,6 +252,28 @@ export async function requestCollectionRefresh(token: string): Promise<void> {
   await callSniper<Record<string, never>>("/collection/refresh", token, { method: "POST", body: "{}" });
 }
 
+export type DolzMyOffer = {
+  token_id: string;
+  price_raw: string;
+  price_usd: number | null;
+  currency: string;
+  expiration: number | null;
+  fundable: boolean | null;
+  card: DolzSniperQuote["card"];
+  listing: DolzSniperQuote["listing"];
+};
+
+/** Open offers the hot wallet has made. */
+export async function getSniperOffers(token: string): Promise<DolzMyOffer[]> {
+  return (await callSniper<{ offers: DolzMyOffer[] }>("/offers/mine", token, undefined, 60_000)).offers;
+}
+
+/** Make or change an offer (`make`), or cancel ours (`cancel`). */
+export async function sniperOffer(token: string, action: "make" | "cancel", body: unknown): Promise<DolzSellResult[]> {
+  const json = await callSniper<{ results: DolzSellResult[] }>(`/offer/${action}`, token, { method: "POST", body: JSON.stringify(body) }, 280_000);
+  return json.results;
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }
