@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
 import type { DolzCollection, DolzCollectionFloor, DolzSellResult, DolzSniperConfig, DolzSniperStatus } from "@/app/lib/dolzSniper";
@@ -108,7 +109,7 @@ export default function MissingCardsTab({ token }: { token: string }) {
     try {
       const response = await api("/api/dolz/sniper?action=buy", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...actionHeaders() },
         body: JSON.stringify({ link: item.floor.token_id, price_raw: item.floor.price_raw }),
       });
       const json = (await response.json()) as { ok: boolean; results?: DolzSellResult[]; error?: string };
@@ -144,7 +145,7 @@ export default function MissingCardsTab({ token }: { token: string }) {
         ...config,
         rules: [...config.rules, { enabled: true, card: item.card, card_name: item.name, min_rarity: null, season: null, max_price: maxPrice, max_serial: null }],
       };
-      const saveResponse = await api("/api/dolz/sniper", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
+      const saveResponse = await api("/api/dolz/sniper", { method: "POST", headers: { "content-type": "application/json", ...actionHeaders() }, body: JSON.stringify(next) });
       const saved = (await saveResponse.json()) as { ok: boolean; error?: string };
       if (!saveResponse.ok || !saved.ok) throw new Error(saved.error || `HTTP ${saveResponse.status}`);
       setNotice({ ok: true, text: `Pravidlo pridané: ${item.card} ${item.name} do ${formatUsd(maxPrice)}.` });

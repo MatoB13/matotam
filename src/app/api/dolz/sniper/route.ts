@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
 /** Forward settings to the sniper, which validates and stores them. */
 export async function POST(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
-  const token = request.nextUrl.searchParams.get("token") ?? "";
+  // Actions that move USDC or cards also carry the action password typed on the page.
+  const token = { token: request.nextUrl.searchParams.get("token") ?? "", password: request.headers.get("x-dolz-password") };
   try {
     const action = request.nextUrl.searchParams.get("action");
     if (action === "rescan") {

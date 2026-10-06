@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import type { DolzMyOffer, DolzSellResult, DolzSniperQuote } from "@/app/lib/dolzSniper";
 
@@ -33,7 +34,7 @@ export default function OfferPanel({ token }: { token: string }) {
     async <T,>(query: string, body?: object): Promise<T> => {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&${query}`, {
         cache: "no-store",
-        ...(body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+        ...(body ? { method: "POST", headers: { "content-type": "application/json", ...actionHeaders() }, body: JSON.stringify(body) } : {}),
       });
       const json = (await response.json()) as T & { ok: boolean; error?: string };
       if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);

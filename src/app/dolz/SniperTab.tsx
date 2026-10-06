@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import OfferPanel from "./OfferPanel";
 import QuickBuy from "./QuickBuy";
@@ -206,7 +207,7 @@ export default function SniperTab({ token }: { token: string }) {
     try {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...actionHeaders() },
         body: JSON.stringify(fromDraft(draft, catalog)),
       });
       const json = (await response.json()) as ApiResponse & { config?: DolzSniperConfig };

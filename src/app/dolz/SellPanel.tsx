@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import type { DolzSellCard, DolzSellInventory, DolzSellOffer, DolzSellResult } from "@/app/lib/dolzSniper";
 
@@ -87,7 +88,7 @@ export default function SellPanel({ token }: { token: string }) {
     try {
       const response = await fetch(`/api/dolz/sell?token=${encodeURIComponent(token)}${action === "list" ? "" : `&action=${action}`}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...actionHeaders() },
         body: JSON.stringify(payload),
       });
       const json = (await response.json()) as { ok: boolean; results?: DolzSellResult[]; error?: string };

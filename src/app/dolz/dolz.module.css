@@ -881,3 +881,37 @@
   height: 18px;
   accent-color: #45ef6c;
 }
+
+.passwordForm {
+  display: flex;
+  gap: 6px;
+}
+
+.passwordForm input {
+  min-width: 0;
+  width: 190px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5fff7;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.passwordState {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #45ef6c;
+  font-size: 13px;
+}
+
+.linkButton {
+  border: 0;
+  background: none;
+  color: #91a39a;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}

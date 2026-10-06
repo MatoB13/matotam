@@ -4,6 +4,7 @@ import { PointerEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
 import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/dolzPortfolio";
 import MissingCardsTab from "./MissingCardsTab";
+import ActionPasswordField from "./ActionPasswordField";
 import MetaMaskTab from "./MetaMaskTab";
 import SniperTab from "./SniperTab";
 
@@ -538,6 +539,7 @@ export default function DolzDashboard({ token }: { token: string }) {
         </div>
 
         <div className={styles.headerActions}>
+          <ActionPasswordField />
           <div className={styles.segmented} role="group" aria-label="Mena">
             <button className={isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("usd")}>USD</button>
             <button className={!isUsd ? styles.segmentActive : styles.segment} onClick={() => setUnit("dolz")}>DOLZ</button>

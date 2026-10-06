@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import type { DolzSellResult, DolzSniperQuote } from "@/app/lib/dolzSniper";
 
@@ -19,7 +20,7 @@ export default function QuickBuy({ token, onBought }: { token: string; onBought:
   const post = async <T,>(action: "quote" | "buy", body: object): Promise<T> => {
     const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=${action}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...actionHeaders() },
       body: JSON.stringify(body),
     });
     const json = (await response.json()) as T & { ok: boolean; error?: string };

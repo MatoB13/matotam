@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
-  const token = request.nextUrl.searchParams.get("token") ?? "";
+  // Actions that move USDC or cards also carry the action password typed on the page.
+  const token = { token: request.nextUrl.searchParams.get("token") ?? "", password: request.headers.get("x-dolz-password") };
   try {
     const body = (await request.json()) as { items?: unknown; token_ids?: unknown; to?: unknown };
     const action = request.nextUrl.searchParams.get("action");
