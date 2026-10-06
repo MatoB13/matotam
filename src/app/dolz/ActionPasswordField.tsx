@@ -37,7 +37,7 @@ export default function ActionPasswordField() {
       onSubmit={(event) => {
         event.preventDefault();
         if (!value) return;
-        setActionPassword(value);
+        setActionPassword(value.trim());
         setValue("");
         setSaved(true);
       }}
