@@ -536,6 +536,11 @@ function handleReply(replyTo: MatotamMessage) {
             </div>
           </div>
 
+          {/* Tagline */}
+          <p className="text-xs text-slate-400 text-center max-w-sm">
+            Send on-chain messages as NFTs — wallet to wallet, no backend.
+          </p>
+
           {/* Tabs */}
           <div className="inline-flex rounded-full bg-slate-900/80 border border-slate-700 p-1 text-xs">
             <button
