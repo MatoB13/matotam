@@ -23,7 +23,11 @@ export async function GET(request: NextRequest) {
     }
     const { cards: listed, source } = await walletCards(address);
     // Cards Blockscout has no metadata for (new ones, e.g. auction prizes) get their names from the sniper's card cache.
-    const unnamed = listed.filter((card) => !card.name && card.contract === DOLZ_NFT).map((card) => card.id);
+    // Newest first: older cards usually get their names on the page from the stored portfolio report.
+    const unnamed = listed
+      .filter((card) => !card.name && card.contract === DOLZ_NFT)
+      .map((card) => card.id)
+      .sort((a, b) => Number(b) - Number(a));
     const meta = await getSniperCards(request.nextUrl.searchParams.get("token") ?? "", unnamed).catch(() => ({}) as Awaited<ReturnType<typeof getSniperCards>>);
     const cards = unnamed.length
       ? sortCards(
