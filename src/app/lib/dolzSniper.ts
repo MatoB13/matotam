@@ -349,6 +349,15 @@ export async function claimSniperAuction(token: SniperAuth, contract: unknown): 
   return (await callSniper<{ claim: DolzAuctionClaim }>("/auction/claim", token, { method: "POST", body: JSON.stringify({ contract }) }, 120_000)).claim;
 }
 
+export type DolzSniperCardMeta = { name: string | null; card: string | null; tier: string | null; serial: string | number | null; rarity: string | null };
+
+/** Card names and attributes the sniper knows (its metadata cache, filled from chain), for up to 100 DolzNFT ids. */
+export async function getSniperCards(token: SniperAuth, ids: string[]): Promise<Record<string, DolzSniperCardMeta>> {
+  if (!sniperUrl() || !ids.length) return {};
+  const json = await callSniper<{ cards: Record<string, DolzSniperCardMeta> }>(`/cards?ids=${ids.slice(0, 100).join(",")}`, token, undefined, 25_000);
+  return json.cards ?? {};
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }
