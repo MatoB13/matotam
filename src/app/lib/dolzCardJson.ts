@@ -15,10 +15,11 @@ type RawCardJson = { name?: string; attributes?: { trait_type?: string; value?: 
 export async function fetchCardJson(tokenId: string): Promise<DolzCardJson | null> {
   const response = await fetch(`https://cardsdata.dolz.io/jsons/${tokenId}.json`, {
     headers: { accept: "application/json" },
-    cache: "force-cache",
+    next: { revalidate: 86_400 },
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) return null;
+  // A card before its reveal says so in its JSON; it is fetched again (not cached) until revealed.
   const data = (await response.json()) as RawCardJson;
   const attributes = Object.fromEntries((data.attributes ?? []).map((a) => [a.trait_type ?? "", String(a.value ?? "")]));
   const serialNumber = attributes["Serial Number"] ?? "";

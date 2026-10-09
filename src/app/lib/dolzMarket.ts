@@ -40,6 +40,8 @@ export type MarketBook = {
 function seedMeta(): Map<string, CardMeta> {
   const meta = new Map<string, CardMeta>();
   for (const [id, [card, tier, season, rarity, serial]] of Object.entries(CARD_META_SEED)) {
+    // Cards seeded before their reveal carry placeholder data: look them up again.
+    if (rarity && /not revealed/i.test(rarity)) continue;
     meta.set(id, { card, tier, season, rarity, serial });
   }
   return meta;

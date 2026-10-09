@@ -15,7 +15,7 @@ export function portfolioWallets(sniperWallet: string | null): string[] {
 
 // The report takes tens of seconds to build, so page loads share one copy. Once it is older than
 // 3 minutes the next load still gets it at once while a fresh one is built in the background.
-export const cachedDolzReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v5"], {
+export const cachedDolzReport = unstable_cache(async (wallets: string[]) => getDolzReport(wallets), ["dolz-report-v6"], {
   revalidate: 180,
   tags: ["dolz-report"],
 });
