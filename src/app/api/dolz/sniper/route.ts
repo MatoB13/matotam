@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getSniperAuction,
   getSniperOffers,
   getSniperStatus,
   isSniperConfigured,
   quoteSniperBuy,
   requestSniperRescan,
+  saveSniperAuction,
   saveSniperConfig,
   sniperBuyNow,
   sniperOffer,
@@ -21,6 +23,13 @@ const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollo
 export async function GET(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
   const token = request.nextUrl.searchParams.get("token") ?? "";
+  if (request.nextUrl.searchParams.get("view") === "auction") {
+    try {
+      return NextResponse.json({ ok: true, auction: await getSniperAuction(token) }, { headers });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." }, { status: 502, headers });
+    }
+  }
   if (request.nextUrl.searchParams.get("view") === "offers") {
     try {
       return NextResponse.json({ ok: true, offers: await getSniperOffers(token) }, { headers });
@@ -42,6 +51,9 @@ export async function POST(request: NextRequest) {
     if (action === "rescan") {
       await requestSniperRescan(token);
       return NextResponse.json({ ok: true }, { headers });
+    }
+    if (action === "auction") {
+      return NextResponse.json({ ok: true, config: await saveSniperAuction(token, await request.json()) }, { headers });
     }
     if (action === "offer" || action === "offer_cancel") {
       const results = await sniperOffer(token, action === "offer" ? "make" : "cancel", await request.json());

@@ -1,0 +1,198 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { actionHeaders } from "./actionPassword";
+import styles from "./dolz.module.css";
+import type { DolzAuctionStatus } from "@/app/lib/dolzSniper";
+
+const DEFAULT_AUCTION = "https://dolz.io/auction/0x9e8c5bb7a649a77e80E04300916cD85f3304bb69";
+
+function formatUsd(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value) ? "—" : `$${value.toFixed(2)}`;
+}
+
+function countdown(seconds: number): string {
+  if (seconds <= 0) return "skončila";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return d ? `${d} d ${h} h ${m} min` : h ? `${h} h ${m} min ${s} s` : `${m} min ${s} s`;
+}
+
+/** Keep the hot wallet's bid on the last winning place of one auction rarity, up to a maximum. */
+export default function AuctionPanel({ token }: { token: string }) {
+  const [data, setData] = useState<DolzAuctionStatus | null>(null);
+  const [link, setLink] = useState(DEFAULT_AUCTION);
+  const [rarity, setRarity] = useState(1);
+  const [maxUsd, setMaxUsd] = useState("");
+  const [step, setStep] = useState("1");
+  const [enabled, setEnabled] = useState(true);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [clock, setClock] = useState(0);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&view=auction`, { cache: "no-store" });
+      const json = (await response.json()) as { ok: boolean; auction?: DolzAuctionStatus; error?: string };
+      if (!response.ok || !json.ok || !json.auction) throw new Error(json.error || `HTTP ${response.status}`);
+      setData(json.auction);
+      setClock(Date.now());
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." });
+    }
+  }, [token]);
+
+  useEffect(() => {
+    const first = window.setTimeout(() => void load(), 0);
+    const id = window.setInterval(() => void load(), 5_000);
+    const tick = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(id);
+      window.clearInterval(tick);
+    };
+  }, [load]);
+
+  // Fill the form from the saved settings until the user edits it.
+  const config = data?.config;
+  useEffect(() => {
+    if (!config || dirty) return;
+    const id = window.setTimeout(() => {
+      setLink(`https://dolz.io/auction/${config.contract}`);
+      setRarity(config.rarity);
+      setMaxUsd(String(config.max_usd));
+      setStep(String(config.increment_usd));
+      setEnabled(config.enabled);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [config, dirty]);
+
+  const save = async (nextEnabled = enabled) => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=auction`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...actionHeaders() },
+        body: JSON.stringify({ contract: link, rarity, max_usd: Number(maxUsd), increment_usd: Number(step), enabled: nextEnabled }),
+      });
+      const json = (await response.json()) as { ok: boolean; error?: string };
+      if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);
+      setDirty(false);
+      setEnabled(nextEnabled);
+      setMessage({ ok: true, text: nextEnabled ? "Uložené, sniper aukciu sleduje a prihadzuje." : "Uložené, prihadzovanie je vypnuté." });
+      void load();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Uloženie zlyhalo." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const status = data?.status;
+  const settings = data?.settings;
+  const rarities = data?.rarities ?? ["Legendary", "Epic", "Rare", "Limited"];
+  const nowSec = (clock || 0) / 1000;
+  const end = settings?.end[rarity];
+  const edit = <T,>(setter: (value: T) => void) => (value: T) => {
+    setter(value);
+    setDirty(true);
+  };
+
+  return (
+    <section className={styles.panelFull}>
+      <div className={styles.panelTitleRow}>
+        <h2>Aukcia</h2>
+        <span>{end ? `${rarities[rarity]} končí o ${countdown(end - nowSec)} (${new Date(end * 1000).toLocaleString("sk-SK")})` : ""}</span>
+      </div>
+      <p className={styles.chartNote}>
+        Sniper drží ponuku hot walletu na poslednom víťaznom mieste zvolenej rarity: keď ju niekto predbehne, prihodí o krok viac, nikdy nad tvoje maximum. Do
+        posledných 15 minút kontroluje každých 5 s, v posledných 3 minútach každú sekundu. Peniaze z prehratej ponuky vracia DOLZ po aukcii.
+      </p>
+      <div className={styles.sellBulk}>
+        <input className={styles.quickBuyInput} aria-label="Odkaz na aukciu" value={link} onChange={(event) => edit(setLink)(event.target.value)} />
+        <select aria-label="Rarita" value={rarity} onChange={(event) => edit(setRarity)(Number(event.target.value))}>
+          {rarities.map((name, index) => (
+            <option key={name} value={index}>
+              {name}
+              {settings ? ` (${settings.supply[index]} ks, od ${formatUsd(settings.min_raw[index] / 1e6)})` : ""}
+            </option>
+          ))}
+        </select>
+        <label className={styles.moneyInput} title="Viac nikdy neprihodí">
+          <span>$</span>
+          <input type="number" min="1" step="1" placeholder="maximum" aria-label="Maximum v USD" value={maxUsd} onChange={(event) => edit(setMaxUsd)(event.target.value)} />
+        </label>
+        <label className={styles.moneyInput} title="O koľko prebije posledné víťazné miesto">
+          <span>+$</span>
+          <input type="number" min="0.01" step="0.5" aria-label="Krok v USD" value={step} onChange={(event) => edit(setStep)(event.target.value)} />
+        </label>
+        <button type="button" className={styles.primaryButton} disabled={saving || !(Number(maxUsd) > 0)} onClick={() => void save(true)}>
+          {saving ? "Ukladám…" : config?.enabled && !dirty ? "Uložiť zmeny" : "Zapnúť prihadzovanie"}
+        </button>
+        {config?.enabled ? (
+          <button type="button" className={styles.refreshButton} disabled={saving} onClick={() => void save(false)}>
+            Vypnúť
+          </button>
+        ) : null}
+      </div>
+      {message ? <p className={message.ok ? styles.goodText : styles.badText}>{message.text}</p> : null}
+
+      {status && status.rarity === rarity ? (
+        <>
+          <div className={styles.metricsGrid}>
+            <article className={styles.metricCard}>
+              <span>Posledné víťazné miesto ({status.supply}.)</span>
+              <strong>{status.cutoff_raw != null ? formatUsd(status.cutoff_raw / 1e6) : "voľné"}</strong>
+              <small>{status.bids} ponúk na {status.supply} kariet</small>
+            </article>
+            <article className={styles.metricCard}>
+              <span>Moja ponuka</span>
+              <strong className={status.winning ? styles.goodText : status.ours ? styles.badText : undefined}>{status.ours ? formatUsd(status.ours.amount / 1e6) : "—"}</strong>
+              <small>{status.ours ? (status.position ? `${status.position}. miesto · ${status.winning ? "vyhráva" : "mimo víťazných miest"}` : "") : "zatiaľ žiadna"}</small>
+            </article>
+            <article className={styles.metricCard}>
+              <span>Treba na miesto</span>
+              <strong>{formatUsd(status.target_raw / 1e6)}</strong>
+              <small>maximum {formatUsd(status.max_usd)}</small>
+            </article>
+            <article className={styles.metricCard}>
+              <span>Stav</span>
+              <strong className={status.enabled ? styles.goodText : styles.mutedText}>{status.enabled ? "prihadzuje" : "vypnuté"}</strong>
+              <small>aktualizované {new Date(status.updated * 1000).toLocaleTimeString("sk-SK")}</small>
+            </article>
+          </div>
+          <div className={`${styles.tableWrap} ${styles.scrollBox}`}>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th className={styles.num}>Ponuka</th>
+                  <th>Kto</th>
+                  <th>Čas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.top.map((bid, index) => (
+                  <tr key={`${bid.bidder}-${index}`} className={index + 1 === status.supply ? styles.sellSelected : undefined}>
+                    <td className={index + 1 > status.supply ? styles.mutedText : undefined}>{index + 1}</td>
+                    <td className={styles.num}>{formatUsd(bid.amount_usd)}</td>
+                    <td>
+                      {status.ours && status.position === index + 1 ? <strong className={styles.goodText}>ja (hot wallet)</strong> : `${bid.bidder.slice(0, 6)}…${bid.bidder.slice(-4)}`}
+                    </td>
+                    <td>{new Date(bid.ts * 1000).toLocaleString("sk-SK")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <p className={styles.chartNote}>{config ? "Načítavam stav aukcie…" : "Zadaj maximum a zapni prihadzovanie; poradie sa zobrazí po prvom načítaní."}</p>
+      )}
+    </section>
+  );
+}

@@ -286,6 +286,41 @@ export async function sniperOffer(token: SniperAuth, action: "make" | "cancel", 
   return json.results;
 }
 
+export type DolzAuctionConfig = { contract: string; rarity: number; max_usd: number; increment_usd: number; enabled: boolean };
+
+export type DolzAuctionStatus = {
+  config: DolzAuctionConfig | null;
+  settings: { supply: number[]; start: number[]; end: number[]; min_raw: number[] } | null;
+  rarities: string[];
+  now: number;
+  status: {
+    rarity: number;
+    supply: number;
+    bids: number;
+    cutoff_raw: number | null;
+    target_raw: number;
+    ours: { amount: number; bid_id: number; ts: number } | null;
+    position: number | null;
+    winning: boolean;
+    end: number;
+    start: number;
+    min_usd: number;
+    max_usd: number;
+    enabled: boolean;
+    contract: string;
+    updated: number;
+    top: { amount_usd: number; bidder: string; ts: number }[];
+  } | null;
+};
+
+export async function getSniperAuction(token: SniperAuth): Promise<DolzAuctionStatus> {
+  return await callSniper<DolzAuctionStatus>("/auction", token, undefined, 20_000);
+}
+
+export async function saveSniperAuction(token: SniperAuth, config: unknown): Promise<DolzAuctionConfig> {
+  return (await callSniper<{ config: DolzAuctionConfig }>("/auction", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }
