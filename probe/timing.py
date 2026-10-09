@@ -32,10 +32,12 @@ for c in sorted(contracts):
     by_topic = collections.defaultdict(list)
     for l in other: by_topic[l["topics"][0]].append(l)
     for topic, ls in by_topic.items():
-        hours = sorted((ts(int(l["blockNumber"], 16)) - end) / 3600 for l in ls[:400])
+        try: hours = sorted((ts(int(l["blockNumber"], 16)) - end) / 3600 for l in ls[:400])
+        except Exception: print("  ts fail", topic[:10]); continue
         print(f"  topic {topic[:10]} count {len(ls)} hours after end: first {hours[0]:.1f} median {hours[len(hours)//2]:.1f} last {hours[-1]:.1f}")
         senders = collections.Counter()
         for l in ls[:25]:
             tx = rpc("eth_getTransactionByHash", [l["transactionHash"]])
+            if not tx: continue
             senders[("OWNER" if tx["from"].lower() == OWNER else "other", tx["input"][:10])] += 1
         print("    senders (first 25):", dict(senders), "sample data", ls[0]["data"][:200], ls[0]["topics"][1:])
