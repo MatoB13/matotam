@@ -4,7 +4,10 @@ UA = {"user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/126 Safari/537.36", 
 def get(url):
     try: return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30).read().decode("utf-8", "replace")
     except Exception as e: return ""
-main = get("https://dolz.io/static/js/main.f0a2dbee.js")
+page = get("https://dolz.io/auction/0x9e8c5bb7a649a77e80E04300916cD85f3304bb69")
+mainsrc = re.findall(r'src="(/static/js/main\.[0-9a-f]+\.js)"', page)
+print("main", mainsrc, len(page))
+main = get("https://dolz.io" + mainsrc[0]) if mainsrc else ""
 i = main.find('"static/js/"+'); seg = main[i:i + 60000]
 ids = re.findall(r'(\d+):"([0-9a-f]{8})"', seg); names = dict(re.findall(r'(\d+):"([a-zA-Z0-9_-]+)"', seg[:20000]))
 srcs = [("main", main)]
@@ -13,6 +16,7 @@ for cid, h in ids:
     if "syntax" in name: continue
     js = get(f"https://dolz.io/static/js/{name}.{h}.chunk.js")
     if re.search(r'getUserWithdraw|functionName:"withdraw"|rootSign|getContractBids', js): srcs.append((name, js))
+print("srcs", [n for n, _ in srcs])
 for name, js in srcs:
     for pat in [r'getUserWithdraw', r'functionName:"withdraw"', r'rootSign']:
         for m in list(re.finditer(pat, js))[:3]:
