@@ -44,6 +44,8 @@ export type RpcLog = {
   blockNumber: string;
   transactionHash: string;
   logIndex: string;
+  /** Tenderly includes the block time (hex seconds). */
+  blockTimestamp?: string;
 };
 
 export type RpcTransaction = {

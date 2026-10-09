@@ -1,11 +1,12 @@
 // Market valuation of DolzNFT cards from real DOLZ marketplace trades.
 //
-// Sales come from DolzMarketplaceSalesManager calls (buyNFT / acceptOffer carry
-// tokenId and price); card identity (card number, rarity tier = serial max,
-// season) comes from the token metadata. Both are seeded in dolzMarketSeed and
+// Sales come from DolzMarketplaceSalesManager's Sale events (tokenId and price);
+// card identity (card number, rarity tier = serial max, season) comes from
+// dolz.io's card JSON. Both are seeded in dolzMarketSeed and
 // topped up at request time.
 
-import { blockscout } from "./blockscout";
+import { fetchCardJson } from "./dolzCardJson";
+import { addressTopic, polygonRpc, type RpcLog } from "./polygonRpc";
 import { CARD_META_SEED, MARKET_SALES_SEED, MARKET_SALES_SEED_UNTIL } from "./dolzMarketSeed";
 
 const SALES_MANAGER = "0xe7693ba9cf616a55b88f3ca7b74db3358b5767ee";
@@ -44,56 +45,34 @@ function seedMeta(): Map<string, CardMeta> {
   return meta;
 }
 
-type BlockscoutTx = {
-  timestamp: string;
-  status: string;
-  decoded_input: { parameters: { name: string; value: string }[] } | null;
-};
+/** Sale event of DolzMarketplaceSalesManager: (seller, buyer, nft) indexed; data = tokenId, price, currency, timestamp. */
+const SALE_TOPIC = "0x2b5c13abb9a5bb44b8c0573ec2ed9d9f2113bc77c8ba0ef031c8143111a87aa6";
+const BLOCKS_PER_DAY = 43_200;
 
+/** Sales after the seed, from the marketplace's Sale events on chain. */
 async function fetchNewSales(): Promise<MarketSale[]> {
+  const latest = parseInt(await polygonRpc<string>("eth_blockNumber", []), 16);
+  const daysSinceSeed = Math.ceil((Date.now() - Date.parse(`${MARKET_SALES_SEED_UNTIL}Z`)) / 86_400_000) + 1;
+  const fromBlock = Math.max(0, latest - daysSinceSeed * BLOCKS_PER_DAY);
+  const logs = await polygonRpc<RpcLog[]>("eth_getLogs", [
+    { address: SALES_MANAGER, topics: [SALE_TOPIC, null, null, addressTopic(DOLZ_NFT)], fromBlock: `0x${fromBlock.toString(16)}`, toBlock: "latest" },
+  ]);
   const out: MarketSale[] = [];
-  let params: Record<string, string | number> | null = null;
-
-  for (let page = 0; page < 20; page += 1) {
-    const query = params ? `?${new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()}` : "";
-    const data: { items: BlockscoutTx[]; next_page_params: Record<string, string | number> | null } = await blockscout(
-      `/addresses/${SALES_MANAGER}/transactions${query}`,
-      600,
-    );
-    let reachedSeed = false;
-    for (const tx of data.items) {
-      const ts = tx.timestamp.slice(0, 19);
-      if (ts <= MARKET_SALES_SEED_UNTIL) {
-        reachedSeed = true;
-        continue;
-      }
-      const values = Object.fromEntries((tx.decoded_input?.parameters ?? []).map((p) => [p.name, p.value]));
-      if (tx.status !== "ok" || !values.tokenId || !values.price) continue;
-      if (String(values.nftAddress ?? "").toLowerCase() !== DOLZ_NFT) continue;
-      out.push({ ts, tokenId: values.tokenId, raw: values.price });
-    }
-    params = data.next_page_params;
-    if (reachedSeed || !params) break;
+  for (const log of logs) {
+    const words = log.data.slice(2).match(/.{64}/g) ?? [];
+    if (words.length < 4) continue;
+    const seconds = log.blockTimestamp ? parseInt(log.blockTimestamp, 16) : Number(BigInt(`0x${words[3]}`));
+    const ts = new Date(seconds * 1000).toISOString().slice(0, 19);
+    if (ts <= MARKET_SALES_SEED_UNTIL) continue;
+    out.push({ ts, tokenId: BigInt(`0x${words[0]}`).toString(), raw: BigInt(`0x${words[1]}`).toString() });
   }
-
   return out;
 }
 
-type BlockscoutInstance = { metadata: { attributes?: { trait_type?: string; value?: string }[] } | null };
-
 async function fetchMeta(tokenId: string): Promise<CardMeta | null> {
-  const data = await blockscout<BlockscoutInstance>(`/tokens/${DOLZ_NFT}/instances/${tokenId}`, false);
-  const attributes = Object.fromEntries((data.metadata?.attributes ?? []).map((a) => [a.trait_type ?? "", a.value ?? ""]));
-  const serialNumber = attributes["Serial Number"] ?? "";
-  const [serial, tier] = serialNumber.includes("/") ? serialNumber.split("/") : [null, null];
-  if (!attributes["Card Number"] && !tier) return null;
-  return {
-    card: attributes["Card Number"] || null,
-    tier: tier || null,
-    season: attributes.Season || null,
-    rarity: attributes.Rarity || null,
-    serial: serial || null,
-  };
+  const card = await fetchCardJson(tokenId);
+  if (!card || (!card.card && !card.tier)) return null;
+  return { card: card.card, tier: card.tier, season: card.season, rarity: card.rarity, serial: card.serial };
 }
 
 function median(values: number[]): number {
@@ -120,8 +99,8 @@ export async function buildMarketBook(
 
   const missing = [...new Set([...heldTokenIds, ...fresh.map((sale) => sale.tokenId)])].filter((id) => !meta.has(id)).slice(0, MAX_NEW_META_PER_REQUEST);
   const deadline = Date.now() + 15_000;
-  for (let index = 0; index < missing.length && Date.now() < deadline; index += 4) {
-    const batch = await Promise.all(missing.slice(index, index + 4).map((id) => fetchMeta(id).catch(() => null)));
+  for (let index = 0; index < missing.length && Date.now() < deadline; index += 12) {
+    const batch = await Promise.all(missing.slice(index, index + 12).map((id) => fetchMeta(id).catch(() => null)));
     batch.forEach((entry, offset) => {
       if (entry) meta.set(missing[index + offset], entry);
     });

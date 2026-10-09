@@ -1,8 +1,8 @@
 // DOLZ NFT portfolio accounting for a set of Polygon wallets.
 //
-// Everything is reconstructed from on-chain data via the Blockscout v2 API:
-// token transfers of the tracked wallets, plus transaction details for the
-// transfers that carry no visible payment (card purchases, auction claims).
+// Everything is reconstructed from on-chain data: the tracked wallets' token transfers (chain logs,
+// plus Blockscout's index when it answers), transaction details for transfers that carry no visible
+// payment (card purchases, auction claims), and card names from dolz.io's card JSON.
 // USD values use the DOLZ/USDT0 and USDC/WETH Uniswap pools on Polygon,
 // seeded from dolzPriceSeed and topped up for newer days at request time.
 
@@ -10,6 +10,7 @@ import { blockscout } from "./blockscout";
 import { fetchTransferLogs, polygonRpc, type RpcBlock, type RpcLog, type RpcTransaction } from "./polygonRpc";
 import { buildMarketBook, DOLZ_MARKET_USDC_SINCE, DOLZ_NFT, type MarketBook, type ValuationSource } from "./dolzMarket";
 import { DOLZ_PRICE_SEED, ETH_PRICE_SEED } from "./dolzPriceSeed";
+import { fetchCardJson } from "./dolzCardJson";
 
 /** Main wallet plus the DOLZ-app smart account (Kernel) that card mints land in. */
 export const DEFAULT_DOLZ_WALLETS = [
@@ -229,29 +230,11 @@ export async function fetchWalletTransfers(wallet: string): Promise<RawTransfer[
   return out;
 }
 
-type BlockscoutTx = {
-  hash: string;
-  to: BlockscoutAddress;
-  method: string | null;
-  raw_input: string | null;
-  decoded_input: { method_call: string; parameters: { name: string; value: string }[] } | null;
-};
-
 export async function fetchTxDetail(hash: string): Promise<RawTxDetail> {
-  const tx = await blockscout<BlockscoutTx>(`/transactions/${hash}`, false);
-  let proxyCoin: string | null = null;
-  let proxyAmount: string | null = null;
-  const input = tx.raw_input ?? "";
-
-  if (input.startsWith(PROXY_SELECTOR) && input.length >= 10 + 64 * 3) {
-    proxyCoin = `0x${input.slice(10 + 24, 10 + 64)}`.toLowerCase();
-    proxyAmount = BigInt(`0x${input.slice(10 + 128, 10 + 192)}`).toString();
-  }
-
-  return { hash, to: tx.to?.hash.toLowerCase() ?? null, method: tx.method, proxyCoin, proxyAmount };
+  const tx = await polygonRpc<RpcTransaction | null>("eth_getTransactionByHash", [hash], true);
+  if (!tx) throw new Error(`Transaction ${hash} not found`);
+  return { hash, to: tx.to?.toLowerCase() ?? null, method: tx.input.slice(0, 10).toLowerCase(), ...decodeProxyInput(tx.input) };
 }
-
-type BlockscoutLog = { block_number: number; topics: (string | null)[]; data: string };
 
 function sqrtPriceFromSwapData(data: string): number {
   const sqrtPriceX96 = BigInt(`0x${data.slice(2 + 128, 2 + 192)}`);
@@ -266,12 +249,21 @@ function ethFromSqrt(sqrt: number): number {
   return 1 / (sqrt * sqrt * 1e-12); // USDC.e per WETH (6 vs 18 decimals)
 }
 
-/** Median pool price over the ~50 swaps preceding `block` (or the latest ones). */
+/** Median pool price over the last ~50 swaps up to `block` (or the latest block), from the chain. */
 async function fetchPoolPrice(pool: string, block: number | null, fromSqrt: (sqrt: number) => number): Promise<number | null> {
-  const query = block ? `?block_number=${block}&index=0&items_count=50` : "";
-  const data = await blockscout<{ items: BlockscoutLog[] }>(`/addresses/${pool}/logs${query}`, block ? false : 600);
-  const prices = data.items
-    .filter((log) => log.topics[0]?.toLowerCase() === SWAP_TOPIC)
+  const end = block ?? parseInt(await polygonRpc<string>("eth_blockNumber", []), 16);
+  let logs: RpcLog[] = [];
+  // Widen the window until there are enough swaps (the DOLZ pool trades less often than the ETH one).
+  for (const span of [2_000, 20_000, 200_000]) {
+    logs = await polygonRpc<RpcLog[]>(
+      "eth_getLogs",
+      [{ address: pool, topics: [SWAP_TOPIC], fromBlock: `0x${Math.max(0, end - span).toString(16)}`, toBlock: `0x${end.toString(16)}` }],
+      block !== null,
+    );
+    if (logs.length >= 20) break;
+  }
+  const prices = logs
+    .slice(-50)
     .map((log) => fromSqrt(sqrtPriceFromSwapData(log.data)))
     .filter((price) => Number.isFinite(price) && price > 0)
     .sort((a, b) => a - b);
@@ -909,8 +901,8 @@ function decodeProxyInput(input: string): Pick<RawTxDetail, "proxyCoin" | "proxy
 }
 
 async function fetchNftName(token: string, tokenId: string): Promise<string | null> {
-  const data = await blockscout<{ metadata: { name?: string } | null }>(`/tokens/${token}/instances/${tokenId}`, false).catch(() => null);
-  return data?.metadata?.name ?? null;
+  if (token !== DOLZ_NFT) return null;
+  return (await fetchCardJson(tokenId).catch(() => null))?.name ?? null;
 }
 
 /**
@@ -939,9 +931,13 @@ export async function fillIndexGaps(transfers: RawTransfer[], wallets: string[])
   const hashes = [...new Set([...missing.values()].map((log) => log.transactionHash.toLowerCase()))];
   const txs = new Map<string, RpcTransaction>();
   const blockTimes = new Map<string, string>();
-  for (let index = 0; index < hashes.length; index += 4) {
+  // Tenderly returns each log's block time, which saves a block lookup per transaction.
+  for (const log of missing.values()) {
+    if (log.blockTimestamp) blockTimes.set(log.blockNumber, new Date(parseInt(log.blockTimestamp, 16) * 1000).toISOString().replace("Z", "000Z"));
+  }
+  for (let index = 0; index < hashes.length; index += 12) {
     await Promise.all(
-      hashes.slice(index, index + 4).map(async (hash) => {
+      hashes.slice(index, index + 12).map(async (hash) => {
         const tx = await polygonRpc<RpcTransaction | null>("eth_getTransactionByHash", [hash], true).catch(() => null);
         if (!tx) return;
         txs.set(hash, tx);
@@ -981,9 +977,9 @@ export async function fillIndexGaps(transfers: RawTransfer[], wallets: string[])
   }
 
   const nftTransfers = added.filter((transfer) => transfer.tokenId);
-  for (let index = 0; index < nftTransfers.length; index += 4) {
+  for (let index = 0; index < nftTransfers.length; index += 12) {
     await Promise.all(
-      nftTransfers.slice(index, index + 4).map(async (transfer) => {
+      nftTransfers.slice(index, index + 12).map(async (transfer) => {
         transfer.nftName = await fetchNftName(transfer.token, transfer.tokenId as string);
       }),
     );
@@ -1000,7 +996,18 @@ export async function fillIndexGaps(transfers: RawTransfer[], wallets: string[])
 }
 
 export async function getDolzReport(wallets = configuredDolzWallets()): Promise<DolzReport> {
-  const indexed = (await Promise.all(wallets.map((wallet) => fetchWalletTransfers(wallet)))).flat();
+  // Blockscout (when it answers) supplies decoded method names and card names; the chain fills in the rest,
+  // and is the whole source when Blockscout refuses us.
+  const indexed = (
+    await Promise.all(
+      wallets.map((wallet) =>
+        Promise.race([
+          fetchWalletTransfers(wallet).catch(() => [] as RawTransfer[]),
+          new Promise<RawTransfer[]>((resolve) => setTimeout(() => resolve([]), 30_000)),
+        ]),
+      ),
+    )
+  ).flat();
   const gaps = await fillIndexGaps(indexed, wallets).catch((error) => {
     console.error("DOLZ gap fill failed", error);
     return { added: [], details: [] as RawTxDetail[] };
@@ -1010,8 +1017,8 @@ export async function getDolzReport(wallets = configuredDolzWallets()): Promise<
 
   const details = new Map<string, RawTxDetail>(gaps.details.map((detail) => [detail.hash, detail]));
   const needed = hashesNeedingDetail(groups).filter((hash) => !details.has(hash));
-  for (let index = 0; index < needed.length; index += 4) {
-    const batch = await Promise.all(needed.slice(index, index + 4).map((hash) => fetchTxDetail(hash).catch(() => null)));
+  for (let index = 0; index < needed.length; index += 12) {
+    const batch = await Promise.all(needed.slice(index, index + 12).map((hash) => fetchTxDetail(hash).catch(() => null)));
     for (const detail of batch) if (detail) details.set(detail.hash, detail);
   }
 
