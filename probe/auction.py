@@ -20,8 +20,10 @@ views = {"getSaleSettings": "0x30337c70", "getRaritySupplies": "0xe32eec36", "ra
          "trustedForwarder": "0x7da0a877"}
 for name, sel in views.items():
     r = call(sel)
-    words = [r[2 + i:2 + i + 64] for i in range(0, len(r) - 2, 64)] if isinstance(r, str) and r.startswith("0x") else r
-    print("VIEW", name, [int(x, 16) if isinstance(x, str) and len(x) == 64 and int(x, 16) < 10**20 else x for x in (words if isinstance(words, list) else [words])])
+    if not (isinstance(r, str) and r.startswith("0x")):
+        print("VIEW", name, r); continue
+    words = [r[2 + i:2 + i + 64] for i in range(0, len(r) - 2, 64)]
+    print("VIEW", name, [int(x, 16) if int(x, 16) < 10**20 else x for x in words])
 for who in (HOT, MAIN):
     for rarity in (0, 1, 2, 3, 4):
         print("alreadyBidded", who[:8], rarity, call("0x500ae991", aw(who) + w(rarity)), "total", call("0x2ed3dd0e", aw(who) + w(rarity)))
