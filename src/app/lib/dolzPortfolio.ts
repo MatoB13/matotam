@@ -44,7 +44,7 @@ export type DolzEvent = {
   ts: string;
   type: DolzEventType;
   channel: DolzChannel;
-  tokens: { id: string; token: string; collection: string; name: string | null }[];
+  tokens: { id: string; token: string; collection: string; name: string | null; rarity?: string | null; serial?: string | null }[];
   /** Positive amounts; direction follows from `type`. */
   usd: number;
   dolz: number;
@@ -531,7 +531,17 @@ export function buildReport(
     transferredOut: 0,
   };
 
-  const tokenRef = (transfer: RawTransfer) => ({ id: transfer.tokenId ?? "?", token: transfer.token, collection: collectionLabel(transfer), name: transfer.nftName });
+  const tokenRef = (transfer: RawTransfer) => {
+    const meta = transfer.token === DOLZ_NFT && transfer.tokenId ? market?.meta.get(transfer.tokenId) : undefined;
+    return {
+      id: transfer.tokenId ?? "?",
+      token: transfer.token,
+      collection: collectionLabel(transfer),
+      name: transfer.nftName,
+      rarity: meta?.rarity ?? null,
+      serial: meta?.serial ?? null,
+    };
+  };
 
   const acquire = (group: TxGroup, channel: DolzChannel, usd: number, dolz: number, paidWith: string | null, type: DolzEventType = "buy") => {
     const count = group.nftIn.length;

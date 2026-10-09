@@ -53,6 +53,13 @@ const EVENT_LABELS: Record<DolzEvent["type"], string> = {
   "transfer-out": "Odoslané",
 };
 
+/** Card name with rarity and serial number ("Limited #489"), so copies of one card can be told apart. */
+function tokenLabel(token: DolzEvent["tokens"][number]): string {
+  const name = token.name?.trim() || `#${token.id}`;
+  const detail = [token.rarity, token.serial ? `#${token.serial}` : null].filter(Boolean).join(" ");
+  return detail ? `${name} (${detail})` : name;
+}
+
 function formatUsd(value: number | null | undefined, digits = 0): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const sign = value < 0 ? "−" : "";
@@ -716,7 +723,7 @@ export default function DolzDashboard({ token }: { token: string }) {
                   ) : sales.map((event) => (
                     <tr key={event.hash}>
                       <td>{formatDate(event.ts)}</td>
-                      <td>{event.tokens.map((token) => token.name?.trim() || `#${token.id}`).join(", ")}</td>
+                      <td>{event.tokens.map(tokenLabel).join(", ")}</td>
                       <td>{DOLZ_CHANNEL_LABELS[event.channel]}</td>
                       <td className={styles.num}>{valueOf(event.usd, event.dolz)}</td>
                       <td className={`${styles.num} ${pnlClass(isUsd ? event.realizedUsd : event.realizedDolz) ?? ""}`}>
@@ -817,7 +824,7 @@ export default function DolzDashboard({ token }: { token: string }) {
                       <td>{formatDate(event.ts)}</td>
                       <td>{EVENT_LABELS[event.type]}</td>
                       <td>{DOLZ_CHANNEL_LABELS[event.channel]}</td>
-                      <td>{event.tokens.length ? event.tokens.map((token) => token.name?.trim() || `#${token.id}`).join(", ") : "—"}</td>
+                      <td>{event.tokens.length ? event.tokens.map(tokenLabel).join(", ") : "—"}</td>
                       <td>{event.paidWith ?? "—"}</td>
                       <td className={styles.num}>{event.usd || event.dolz ? valueOf(event.usd, event.dolz) : "—"}</td>
                       <td>
