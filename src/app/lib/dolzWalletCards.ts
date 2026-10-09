@@ -2,7 +2,7 @@
 import { unstable_cache } from "next/cache";
 import { blockscout } from "./blockscout";
 import { configuredDolzWallets, DOLZ_NFT_CONTRACTS, GAP_FILL_FROM_BLOCK, getDolzReport } from "./dolzPortfolio";
-import { fetchTransferLogs } from "./polygonRpc";
+import { fetchTransferLogs, polygonRpc } from "./polygonRpc";
 
 /** Hot wallet of the DOLZ sniper (also imported in Rabby). */
 export const SNIPER_HOT_WALLET = "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6";
@@ -74,12 +74,22 @@ async function blockscoutCards(address: string): Promise<DolzWalletCard[]> {
   return cards;
 }
 
-/** Cards a wallet holds right now, from its full Transfer history on chain (Blockscout's index has gaps). */
-async function chainHeld(address: string): Promise<{ contract: string; id: string }[]> {
+/** Cards a wallet holds right now, from its Transfer history on chain since fromBlock (Blockscout's index has gaps). */
+async function chainHeld(address: string, fromBlock = GAP_FILL_FROM_BLOCK): Promise<{ contract: string; id: string }[]> {
+  return [...(await chainChanges(address, fromBlock)).entries()].filter(([, held]) => held).map(([key]) => splitKey(key));
+}
+
+function splitKey(key: string): { contract: string; id: string } {
+  const [contract, id] = key.split(":");
+  return { contract, id };
+}
+
+/** Per card, whether the wallet holds it after its Transfers since fromBlock (true = received last, false = sent last). */
+async function chainChanges(address: string, fromBlock: number): Promise<Map<string, boolean>> {
   const contracts = Object.keys(DOLZ_NFT_CONTRACTS);
   const [incoming, outgoing] = await Promise.all([
-    fetchTransferLogs(contracts, address, "in", GAP_FILL_FROM_BLOCK),
-    fetchTransferLogs(contracts, address, "out", GAP_FILL_FROM_BLOCK),
+    fetchTransferLogs(contracts, address, "in", fromBlock),
+    fetchTransferLogs(contracts, address, "out", fromBlock),
   ]);
   const events = [...incoming.map((log) => ({ log, delta: 1 })), ...outgoing.map((log) => ({ log, delta: -1 }))]
     .filter(({ log }) => log.topics.length === 4)
@@ -87,14 +97,17 @@ async function chainHeld(address: string): Promise<{ contract: string; id: strin
       (a, b) =>
         parseInt(a.log.blockNumber, 16) - parseInt(b.log.blockNumber, 16) || parseInt(a.log.logIndex, 16) - parseInt(b.log.logIndex, 16),
     );
-  const held = new Map<string, { contract: string; id: string }>();
+  const held = new Map<string, boolean>();
   for (const { log, delta } of events) {
-    const contract = log.address.toLowerCase();
-    const id = BigInt(log.topics[3]).toString();
-    if (delta > 0) held.set(`${contract}:${id}`, { contract, id });
-    else held.delete(`${contract}:${id}`);
+    held.set(`${log.address.toLowerCase()}:${BigInt(log.topics[3]).toString()}`, delta > 0);
   }
-  return [...held.values()];
+  return held;
+}
+
+/** Last ~5 days of Transfers: small enough to answer quickly even when the full history times out. */
+async function recentChanges(address: string): Promise<Map<string, boolean>> {
+  const latest = parseInt(await polygonRpc<string>("eth_blockNumber", []), 16);
+  return chainChanges(address, Math.max(GAP_FILL_FROM_BLOCK, latest - 200_000));
 }
 
 const within = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
@@ -107,8 +120,22 @@ const within = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
  */
 export const walletCards = unstable_cache(
   async (address: string): Promise<{ cards: DolzWalletCard[]; source: "chain" | "blockscout" }> => {
-    const [indexed, onChain] = await Promise.all([within(blockscoutCards(address), 25_000), within(chainHeld(address), 20_000)]);
+    const [indexed, full, recent] = await Promise.all([
+      within(blockscoutCards(address), 25_000),
+      within(chainHeld(address), 20_000),
+      within(recentChanges(address), 15_000),
+    ]);
     const byKey = new Map((indexed ?? []).map((card) => [`${card.contract}:${card.id}`, card]));
+    // Without the full history, Blockscout's list corrected by the recent Transfers (it indexes new cards late).
+    let onChain = full;
+    if (!onChain && indexed && recent) {
+      const keys = new Set(byKey.keys());
+      for (const [key, held] of recent) {
+        if (held) keys.add(key);
+        else keys.delete(key);
+      }
+      onChain = [...keys].map(splitKey);
+    }
     const cards = onChain
       ? onChain.map(
           ({ contract, id }) =>
@@ -128,7 +155,7 @@ export const walletCards = unstable_cache(
     if (!onChain && !indexed) throw new Error("Karty sa nepodarilo načítať, skús to o chvíľu.");
     return { cards: sortCards(cards), source: onChain ? "chain" : "blockscout" };
   },
-  ["dolz-wallet-cards-v2"],
+  ["dolz-wallet-cards-v3"],
   { revalidate: 30 },
 );
 
