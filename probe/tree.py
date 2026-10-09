@@ -20,11 +20,13 @@ print("root", rpc("eth_call", [{"to": C, "data": "0x244cb2c8"}, "latest"]))
 bids = post({"command": "getContractBids", "contractAddress": C}) or []
 bidders = sorted({b["bidder"].lower() for b in bids})
 print("bids", len(bids), "bidders", len(bidders), "hot bids", [b for b in bids if b["bidder"].lower() == HOT])
+print("tokenIds sample counts", len(bids))
 def one(a): return a, post({"command": "getUserWithdraw", "contractAddress": C, "userAddress": a})
 with ThreadPoolExecutor(8) as ex: res = list(ex.map(one, bidders))
 entries = [e for a, r in res for e in (r or [])]
 print("entries", len(entries), "empty", sum(1 for a, r in res if not r))
 print("sample", entries[:3])
+print("main entry", [e for e in entries if e["dawClaimer"].lower() == "0xa4cd3de07dafa3f700c908043118b39547190143"])
 print("hot entry", [e for e in entries if e["dawClaimer"].lower() == HOT])
 json.dump(entries, open("/tmp/entries.json", "w"))
 # leaf candidates
