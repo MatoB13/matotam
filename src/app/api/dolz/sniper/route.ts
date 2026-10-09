@@ -7,6 +7,7 @@ import {
   quoteSniperBuy,
   requestSniperRescan,
   saveSniperAuction,
+  claimSniperAuction,
   saveSniperConfig,
   sniperBuyNow,
   sniperOffer,
@@ -51,6 +52,10 @@ export async function POST(request: NextRequest) {
     if (action === "rescan") {
       await requestSniperRescan(token);
       return NextResponse.json({ ok: true }, { headers });
+    }
+    if (action === "auction_claim") {
+      const body = (await request.json()) as { contract?: unknown };
+      return NextResponse.json({ ok: true, claim: await claimSniperAuction(token, body.contract) }, { headers });
     }
     if (action === "auction") {
       return NextResponse.json({ ok: true, config: await saveSniperAuction(token, await request.json()) }, { headers });

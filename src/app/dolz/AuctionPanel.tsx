@@ -34,6 +34,7 @@ export default function AuctionPanel({ token }: { token: string }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [clock, setClock] = useState(0);
+  const [claiming, setClaiming] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +111,29 @@ export default function AuctionPanel({ token }: { token: string }) {
     }
   };
 
+  const claimNow = async () => {
+    const contract = config?.contract ?? configs[configs.length - 1]?.contract;
+    if (!contract) return;
+    setClaiming(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=auction_claim`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...actionHeaders() },
+        body: JSON.stringify({ contract }),
+      });
+      const json = (await response.json()) as { ok: boolean; claim?: { state: string; message: string }; error?: string };
+      if (!response.ok || !json.ok || !json.claim) throw new Error(json.error || `HTTP ${response.status}`);
+      setMessage({ ok: json.claim.state === "done", text: json.claim.message });
+      void load();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Výber zlyhal." });
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const claim = (data?.claims ?? []).find((item) => item.contract === (config?.contract ?? configs[configs.length - 1]?.contract)) ?? null;
   const status = (data?.statuses ?? []).find((item) => item.rarity === rarity) ?? null;
   const settings = data?.settings;
   const rarities = data?.rarities ?? ["Legendary", "Epic", "Rare", "Limited"];
@@ -127,10 +151,26 @@ export default function AuctionPanel({ token }: { token: string }) {
         <span>{end ? `${rarities[rarity]} končí o ${countdown(end - nowSec)} (${new Date(end * 1000).toLocaleString("sk-SK")})` : ""}</span>
       </div>
       <p className={styles.chartNote}>
-        Sniper drží ponuku hot walletu na poslednom víťaznom mieste zvolenej rarity: keď ju niekto predbehne, prihodí o krok viac, nikdy nad tvoje maximum. Do
-        posledných 15 minút kontroluje každých 5 s, v posledných 3 minútach každú sekundu. V posledných 30 sekundách pridá k
-        kroku ešte rezervu (30s +$), lebo v minulých aukciách posledné víťazné miesto v záverečných sekundách ešte stúplo. Peniaze z prehratej ponuky vracia DOLZ po aukcii.
+        Sniper drží ponuku hot walletu na predposlednom víťaznom mieste. Keď ju niekto predbehne, prihodí o krok viac, nikdy nad tvoje maximum. Kontrakt
+        pritom vyžaduje navýšenie vlastnej ponuky aspoň o 10 %, preto nastav maximum s rezervou. Prihadzuje len rarita, ktorá končí najskôr; posledných 20
+        minút kontroluje každú sekundu a v posledných 30 sekundách pridá rezervu (30s +$). Výhry a vrátené peniaze vyberie po aukcii sám do hot walletu.
       </p>
+      <div className={styles.sellBulk}>
+        <span className={claim?.state === "done" ? styles.goodText : styles.mutedText}>
+          Výhry: {claim ? `${claim.message}${claim.token_ids?.length ? ` Karty ${claim.token_ids.join(", ")}.` : ""}${claim.refund_usd ? ` Vrátené ${formatUsd(claim.refund_usd)}.` : ""}` : "po skončení aukcie ich bot vyberie sám."}
+          {claim?.tx ? (
+            <>
+              {" "}
+              <a href={`https://polygonscan.com/tx/${claim.tx}`} target="_blank" rel="noreferrer" className={styles.txLink}>
+                transakcia
+              </a>
+            </>
+          ) : null}
+        </span>
+        <button type="button" className={styles.primaryButton} onClick={() => void claimNow()} disabled={claiming || !configs.length || claim?.state === "done"}>
+          {claiming ? "Vyberám…" : "Vybrať výhry"}
+        </button>
+      </div>
       <div className={styles.sellBulk}>
         <input className={styles.quickBuyInput} aria-label="Odkaz na aukciu" value={link} onChange={(event) => edit(setLink)(event.target.value)} />
         <select

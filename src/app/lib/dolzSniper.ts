@@ -323,6 +323,18 @@ export type DolzAuctionStatus = {
   settings: { supply: number[]; start: number[]; end: number[]; min_raw: number[] } | null;
   rarities: string[];
   now: number;
+  /** Prize withdrawal per auction contract (filled once the auction has ended). */
+  claims?: DolzAuctionClaim[];
+};
+
+export type DolzAuctionClaim = {
+  contract: string;
+  checked: number;
+  state: "waiting" | "no_proof" | "done" | "failed";
+  message: string;
+  token_ids?: number[];
+  refund_usd?: number;
+  tx?: string;
 };
 
 export async function getSniperAuction(token: SniperAuth): Promise<DolzAuctionStatus> {
@@ -331,6 +343,10 @@ export async function getSniperAuction(token: SniperAuth): Promise<DolzAuctionSt
 
 export async function saveSniperAuction(token: SniperAuth, config: unknown): Promise<DolzAuctionConfig> {
   return (await callSniper<{ config: DolzAuctionConfig }>("/auction", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
+}
+
+export async function claimSniperAuction(token: SniperAuth, contract: unknown): Promise<DolzAuctionClaim> {
+  return (await callSniper<{ claim: DolzAuctionClaim }>("/auction/claim", token, { method: "POST", body: JSON.stringify({ contract }) }, 120_000)).claim;
 }
 
 export function isSniperConfigured(): boolean {
