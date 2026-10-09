@@ -298,7 +298,10 @@ export default function SellPanel({ token }: { token: string }) {
                       {[card.rarity, card.tier ? `/${card.tier}` : null].filter(Boolean).join(" ") || "—"}
                       {card.serial != null ? <small className={styles.mutedText}> · #{card.serial}</small> : null}
                     </td>
-                    <td className={styles.num}>{formatUsd(card.bought_usd)}</td>
+                    <td className={styles.num}>
+                      {formatUsd(card.bought_usd)}
+                      {card.bought_via && card.bought_via !== "sniper" ? <small className={styles.mutedText}> · {card.bought_via}</small> : null}
+                    </td>
                     <td className={styles.num} title={card.market ? `${card.market.sales} predajov (${card.market.source})` : "Žiadne predaje za USDC"}>
                       {formatUsd(card.market?.usd)}
                       {card.market ? <small className={styles.mutedText}> · {card.market.sales}×</small> : null}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildMarketBook } from "@/app/lib/dolzMarket";
+import { buildMarketBook, DOLZ_NFT } from "@/app/lib/dolzMarket";
 import { answerSniperOffer, cancelSniperListings, getSniperInventory, listSniperCards, transferSniperCards } from "@/app/lib/dolzSniper";
+import { cachedDolzReport, portfolioWallets } from "@/app/lib/dolzWalletCards";
 import { isDolzAuthorized } from "../auth";
 
 export const runtime = "nodejs";
@@ -39,7 +40,25 @@ export async function GET(request: NextRequest) {
       buildMarketBook(() => null, [], known).catch(() => null),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
     ]);
-    const cards = inventory.cards.map((card) => ({ ...card, market: market?.value(card.token_id) ?? null }));
+    // Cards the sniper did not buy (moved in from MetaMask, ...): their cost from the cached portfolio report.
+    const needCost = inventory.cards.some((card) => card.bought_usd == null);
+    const report = needCost
+      ? await Promise.race([
+          cachedDolzReport(portfolioWallets(inventory.wallet?.toLowerCase() ?? null)).catch(() => null),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+        ])
+      : null;
+    const costs = new Map(
+      (report?.holdings ?? []).filter((holding) => holding.token === DOLZ_NFT && holding.costUsd > 0).map((holding) => [holding.id, holding.costUsd]),
+    );
+    const cards = inventory.cards.map((card) => {
+      const cost = card.bought_usd == null ? costs.get(card.token_id) : undefined;
+      return {
+        ...card,
+        ...(cost != null ? { bought_usd: cost, bought_via: "portfólio" as const } : {}),
+        market: market?.value(card.token_id) ?? null,
+      };
+    });
     return NextResponse.json({ ok: true, inventory: { ...inventory, cards } }, { headers });
   } catch (error) {
     return failure(error, "Načítanie kariet zlyhalo.", 502);

@@ -174,6 +174,8 @@ export type DolzSellCard = {
   image: string | null;
   bought_usd: number | null;
   bought_at: string | null;
+  /** Where the purchase price comes from: the sniper's own buy, the winning auction bid, or the portfolio. */
+  bought_via?: "sniper" | "aukcia" | "portfólio" | null;
   listing: DolzSellListing | null;
   /** Open offers from buyers, highest first. */
   offers?: DolzSellOffer[];
