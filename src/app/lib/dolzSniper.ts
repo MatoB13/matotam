@@ -286,31 +286,43 @@ export async function sniperOffer(token: SniperAuth, action: "make" | "cancel", 
   return json.results;
 }
 
-export type DolzAuctionConfig = { contract: string; rarity: number; max_usd: number; increment_usd: number; final_extra_usd?: number; enabled: boolean };
+export type DolzAuctionConfig = {
+  contract: string;
+  rarity: number;
+  max_usd: number;
+  increment_usd: number;
+  /** Step as a percentage of the last winning place; the larger of the two applies. */
+  increment_pct?: number;
+  final_extra_usd?: number;
+  enabled: boolean;
+};
+
+export type DolzAuctionRarityStatus = {
+  rarity: number;
+  supply: number;
+  bids: number;
+  cutoff_raw: number | null;
+  target_raw: number;
+  ours: { amount: number; bid_id: number; ts: number } | null;
+  position: number | null;
+  winning: boolean;
+  end: number;
+  start: number;
+  min_usd: number;
+  max_usd: number;
+  enabled: boolean;
+  contract: string;
+  updated: number;
+  top: { amount_usd: number; bidder: string; ts: number }[];
+};
 
 export type DolzAuctionStatus = {
-  config: DolzAuctionConfig | null;
+  /** One config per rarity the sniper bids on. */
+  configs: DolzAuctionConfig[];
+  statuses: DolzAuctionRarityStatus[];
   settings: { supply: number[]; start: number[]; end: number[]; min_raw: number[] } | null;
   rarities: string[];
   now: number;
-  status: {
-    rarity: number;
-    supply: number;
-    bids: number;
-    cutoff_raw: number | null;
-    target_raw: number;
-    ours: { amount: number; bid_id: number; ts: number } | null;
-    position: number | null;
-    winning: boolean;
-    end: number;
-    start: number;
-    min_usd: number;
-    max_usd: number;
-    enabled: boolean;
-    contract: string;
-    updated: number;
-    top: { amount_usd: number; bidder: string; ts: number }[];
-  } | null;
 };
 
 export async function getSniperAuction(token: SniperAuth): Promise<DolzAuctionStatus> {

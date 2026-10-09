@@ -27,6 +27,7 @@ export default function AuctionPanel({ token }: { token: string }) {
   const [rarity, setRarity] = useState(1);
   const [maxUsd, setMaxUsd] = useState("");
   const [step, setStep] = useState("1");
+  const [stepPct, setStepPct] = useState("");
   const [finalExtra, setFinalExtra] = useState("2");
   const [enabled, setEnabled] = useState(true);
   const [dirty, setDirty] = useState(false);
@@ -39,7 +40,13 @@ export default function AuctionPanel({ token }: { token: string }) {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&view=auction`, { cache: "no-store" });
       const json = (await response.json()) as { ok: boolean; auction?: DolzAuctionStatus; error?: string };
       if (!response.ok || !json.ok || !json.auction) throw new Error(json.error || `HTTP ${response.status}`);
-      setData(json.auction);
+      // A sniper not yet updated answers with a single config/status.
+      const legacy = json.auction as DolzAuctionStatus & { config?: DolzAuctionStatus["configs"][number] | null; status?: DolzAuctionStatus["statuses"][number] | null };
+      setData({
+        ...json.auction,
+        configs: json.auction.configs ?? (legacy.config ? [legacy.config] : []),
+        statuses: json.auction.statuses ?? (legacy.status ? [legacy.status] : []),
+      });
       setClock(Date.now());
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." });
@@ -57,17 +64,18 @@ export default function AuctionPanel({ token }: { token: string }) {
     };
   }, [load]);
 
-  // Fill the form from the saved settings until the user edits it.
-  const config = data?.config;
+  // Each rarity has its own saved settings; fill the form from the selected one until the user edits it.
+  const configs = data?.configs ?? [];
+  const config = configs.find((item) => item.rarity === rarity) ?? null;
   useEffect(() => {
-    if (!config || dirty) return;
+    if (dirty) return;
     const id = window.setTimeout(() => {
-      setLink(`https://dolz.io/auction/${config.contract}`);
-      setRarity(config.rarity);
-      setMaxUsd(String(config.max_usd));
-      setStep(String(config.increment_usd));
-      setFinalExtra(String(config.final_extra_usd ?? 0));
-      setEnabled(config.enabled);
+      if (config) setLink(`https://dolz.io/auction/${config.contract}`);
+      setMaxUsd(config ? String(config.max_usd) : "");
+      setStep(config ? String(config.increment_usd) : "1");
+      setStepPct(config?.increment_pct ? String(config.increment_pct) : "");
+      setFinalExtra(config ? String(config.final_extra_usd ?? 0) : "2");
+      setEnabled(config ? config.enabled : true);
     }, 0);
     return () => window.clearTimeout(id);
   }, [config, dirty]);
@@ -79,7 +87,15 @@ export default function AuctionPanel({ token }: { token: string }) {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=auction`, {
         method: "POST",
         headers: { "content-type": "application/json", ...actionHeaders() },
-        body: JSON.stringify({ contract: link, rarity, max_usd: Number(maxUsd), increment_usd: Number(step), final_extra_usd: Number(finalExtra) || 0, enabled: nextEnabled }),
+        body: JSON.stringify({
+          contract: link,
+          rarity,
+          max_usd: Number(maxUsd),
+          increment_usd: Number(step),
+          increment_pct: Number(stepPct) || 0,
+          final_extra_usd: Number(finalExtra) || 0,
+          enabled: nextEnabled,
+        }),
       });
       const json = (await response.json()) as { ok: boolean; error?: string };
       if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);
@@ -94,7 +110,7 @@ export default function AuctionPanel({ token }: { token: string }) {
     }
   };
 
-  const status = data?.status;
+  const status = (data?.statuses ?? []).find((item) => item.rarity === rarity) ?? null;
   const settings = data?.settings;
   const rarities = data?.rarities ?? ["Legendary", "Epic", "Rare", "Limited"];
   const nowSec = (clock || 0) / 1000;
@@ -117,7 +133,14 @@ export default function AuctionPanel({ token }: { token: string }) {
       </p>
       <div className={styles.sellBulk}>
         <input className={styles.quickBuyInput} aria-label="Odkaz na aukciu" value={link} onChange={(event) => edit(setLink)(event.target.value)} />
-        <select aria-label="Rarita" value={rarity} onChange={(event) => edit(setRarity)(Number(event.target.value))}>
+        <select
+          aria-label="Rarita"
+          value={rarity}
+          onChange={(event) => {
+            setRarity(Number(event.target.value));
+            setDirty(false); // load the chosen rarity's own settings
+          }}
+        >
           {rarities.map((name, index) => (
             <option key={name} value={index}>
               {name}
@@ -132,6 +155,10 @@ export default function AuctionPanel({ token }: { token: string }) {
         <label className={styles.moneyInput} title="O koľko prebije posledné víťazné miesto">
           <span>+$</span>
           <input type="number" min="0.01" step="0.5" aria-label="Krok v USD" value={step} onChange={(event) => edit(setStep)(event.target.value)} />
+        </label>
+        <label className={styles.moneyInput} title="Krok v percentách z posledného víťazného miesta; platí väčší z oboch">
+          <span>+%</span>
+          <input type="number" min="0" step="1" placeholder="alebo %" aria-label="Krok v percentách" value={stepPct} onChange={(event) => edit(setStepPct)(event.target.value)} />
         </label>
         <label className={styles.moneyInput} title="Navyše ku kroku v posledných 30 sekundách">
           <span>30s +$</span>
@@ -155,6 +182,25 @@ export default function AuctionPanel({ token }: { token: string }) {
         ) : null}
       </div>
       {message ? <p className={message.ok ? styles.goodText : styles.badText}>{message.text}</p> : null}
+      {configs.length ? (
+        <ul className={styles.ruleList}>
+          {configs.map((item) => {
+            const itemStatus = (data?.statuses ?? []).find((entry) => entry.rarity === item.rarity);
+            return (
+              <li key={`${item.contract}-${item.rarity}`}>
+                <button type="button" className={styles.linkButton} onClick={() => { setRarity(item.rarity); setDirty(false); }}>
+                  {rarities[item.rarity] ?? item.rarity}
+                </button>
+                {": "}
+                {item.enabled ? "prihadzuje" : "vypnuté"} · max {formatUsd(item.max_usd)}
+                {itemStatus?.ours
+                  ? ` · moja ponuka ${formatUsd(itemStatus.ours.amount / 1e6)}${itemStatus.position ? `, ${itemStatus.position}./${itemStatus.supply}` : ""}`
+                  : " · zatiaľ bez ponuky"}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
 
       {status && status.rarity === rarity ? (
         <>
