@@ -7,4 +7,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 probe/uw3.py
+      - run: pip install -q pycryptodome eth-abi && python3 probe/tree.py
