@@ -286,7 +286,7 @@ export async function sniperOffer(token: SniperAuth, action: "make" | "cancel", 
   return json.results;
 }
 
-export type DolzAuctionConfig = { contract: string; rarity: number; max_usd: number; increment_usd: number; enabled: boolean };
+export type DolzAuctionConfig = { contract: string; rarity: number; max_usd: number; increment_usd: number; final_extra_usd?: number; enabled: boolean };
 
 export type DolzAuctionStatus = {
   config: DolzAuctionConfig | null;

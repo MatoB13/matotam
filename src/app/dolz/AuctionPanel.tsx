@@ -27,6 +27,7 @@ export default function AuctionPanel({ token }: { token: string }) {
   const [rarity, setRarity] = useState(1);
   const [maxUsd, setMaxUsd] = useState("");
   const [step, setStep] = useState("1");
+  const [finalExtra, setFinalExtra] = useState("2");
   const [enabled, setEnabled] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,6 +66,7 @@ export default function AuctionPanel({ token }: { token: string }) {
       setRarity(config.rarity);
       setMaxUsd(String(config.max_usd));
       setStep(String(config.increment_usd));
+      setFinalExtra(String(config.final_extra_usd ?? 0));
       setEnabled(config.enabled);
     }, 0);
     return () => window.clearTimeout(id);
@@ -77,7 +79,7 @@ export default function AuctionPanel({ token }: { token: string }) {
       const response = await fetch(`/api/dolz/sniper?token=${encodeURIComponent(token)}&action=auction`, {
         method: "POST",
         headers: { "content-type": "application/json", ...actionHeaders() },
-        body: JSON.stringify({ contract: link, rarity, max_usd: Number(maxUsd), increment_usd: Number(step), enabled: nextEnabled }),
+        body: JSON.stringify({ contract: link, rarity, max_usd: Number(maxUsd), increment_usd: Number(step), final_extra_usd: Number(finalExtra) || 0, enabled: nextEnabled }),
       });
       const json = (await response.json()) as { ok: boolean; error?: string };
       if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);
@@ -110,7 +112,8 @@ export default function AuctionPanel({ token }: { token: string }) {
       </div>
       <p className={styles.chartNote}>
         Sniper drží ponuku hot walletu na poslednom víťaznom mieste zvolenej rarity: keď ju niekto predbehne, prihodí o krok viac, nikdy nad tvoje maximum. Do
-        posledných 15 minút kontroluje každých 5 s, v posledných 3 minútach každú sekundu. Peniaze z prehratej ponuky vracia DOLZ po aukcii.
+        posledných 15 minút kontroluje každých 5 s, v posledných 3 minútach každú sekundu. V posledných 30 sekundách pridá k
+        kroku ešte rezervu (30s +$), lebo v minulých aukciách posledné víťazné miesto v záverečných sekundách ešte stúplo. Peniaze z prehratej ponuky vracia DOLZ po aukcii.
       </p>
       <div className={styles.sellBulk}>
         <input className={styles.quickBuyInput} aria-label="Odkaz na aukciu" value={link} onChange={(event) => edit(setLink)(event.target.value)} />
@@ -129,6 +132,18 @@ export default function AuctionPanel({ token }: { token: string }) {
         <label className={styles.moneyInput} title="O koľko prebije posledné víťazné miesto">
           <span>+$</span>
           <input type="number" min="0.01" step="0.5" aria-label="Krok v USD" value={step} onChange={(event) => edit(setStep)(event.target.value)} />
+        </label>
+        <label className={styles.moneyInput} title="Navyše ku kroku v posledných 30 sekundách">
+          <span>30s +$</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            aria-label="Rezerva v posledných 30 sekundách v USD"
+            value={finalExtra}
+            onChange={(event) => edit(setFinalExtra)(event.target.value)}
+            style={{ paddingLeft: 52 }}
+          />
         </label>
         <button type="button" className={styles.primaryButton} disabled={saving || !(Number(maxUsd) > 0)} onClick={() => void save(true)}>
           {saving ? "Ukladám…" : config?.enabled && !dirty ? "Uložiť zmeny" : "Zapnúť prihadzovanie"}
