@@ -46,7 +46,14 @@ for contract, entries in by_contract.items():
         events.append({"bidder": "0x" + d[12:32].hex(), "amount": w[1], "ts": w[2], "id": w[3], "rarity": w[4]})
     for rarity, supply in enumerate(st["supply"]):
         end = st["end"][rarity]
-        if end > time.time(): print(f"  {NAMES[rarity]}: still running, ends {time.strftime('%m-%d %H:%M', time.gmtime(end))}"); continue
+        if end > time.time():
+            evs_now = [e for e in events if e["rarity"] == rarity]
+            b = {}
+            for e in evs_now: b[e["id"]] = (e["amount"], e["ts"], e["bidder"])
+            now_book = sorted(b.values(), key=lambda x: (-x[0], x[1]))
+            line = " | ".join(f"{k}:{now_book[k-1][0]/1e6:.2f}" for k in range(max(1, supply - 4), min(len(now_book), supply + 5) + 1))
+            print(f"  {NAMES[rarity]}: still running, ends {time.strftime('%m-%d %H:%M', time.gmtime(end))}, {len(now_book)} bids NOW places {max(1,supply-4)}..{supply+5}: {line}")
+            continue
         evs = [e for e in events if e["rarity"] == rarity]
         def book_at(t):
             b = {}
@@ -58,6 +65,9 @@ for contract, entries in by_contract.items():
         final = book_at(end + 3600)
         late = {s: sum(1 for e in evs if end - s < e["ts"] <= end) for s in (5, 15, 60, 300)}
         print(f"  {NAMES[rarity]} (supply {supply}, {len(final)} bidders, end {time.strftime('%m-%d %H:%M:%S', time.gmtime(end))}) bids in last 5s/15s/60s/5min: {late[5]}/{late[15]}/{late[60]}/{late[300]}")
+        fin = book_at(end + 3600)
+        line = " | ".join(f"{k}:{fin[k-1][0]/1e6:.6g}" for k in range(max(1, supply - 4), min(len(fin), supply + 5) + 1))
+        print(f"     FINAL places {max(1,supply-4)}..{supply+5}: {line}")
         for k in (supply - 2, supply - 1, supply, supply + 1):
             if k < 1: continue
             print(f"     place {k:3d}: " + "  ".join(f"T-{lbl}: {cut(end - s, k)}" for lbl, s in (("10m", 600), ("3m", 180), ("60s", 60), ("15s", 15), ("5s", 5), ("0", 0))) + f"  final: {cut(end + 3600, k)}")
