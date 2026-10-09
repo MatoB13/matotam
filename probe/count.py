@@ -24,3 +24,4 @@ missing = [a for a in ranking if a not in have]
 print("winners", len(ranking), "winners without claim", len(missing), "hot is winner", HOT in ranking, "hot has claim", HOT in have)
 print("sample missing", missing[:8])
 # rerun 14:33
+# rerun 15:13
