@@ -22,7 +22,23 @@ export async function GET(request: NextRequest) {
   try {
     const inventory = await getSniperInventory(token);
     // USDC-era sales only: DOLZ-era prices would need the price book, which the sell view does not load.
-    const market = await buildMarketBook(() => null, inventory.cards.map((card) => card.token_id)).catch(() => null);
+    // Card and tier come from the sniper, so only sales of other cards may need a (slow) metadata lookup.
+    const known = Object.fromEntries(
+      inventory.cards.map((card) => [
+        card.token_id,
+        {
+          card: card.card ?? null,
+          tier: card.tier != null ? String(card.tier) : null,
+          season: card.season != null ? String(card.season) : null,
+          rarity: card.rarity ?? null,
+          serial: card.serial != null ? String(card.serial) : null,
+        },
+      ]),
+    );
+    const market = await Promise.race([
+      buildMarketBook(() => null, [], known).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+    ]);
     const cards = inventory.cards.map((card) => ({ ...card, market: market?.value(card.token_id) ?? null }));
     return NextResponse.json({ ok: true, inventory: { ...inventory, cards } }, { headers });
   } catch (error) {

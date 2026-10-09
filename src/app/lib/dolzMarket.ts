@@ -106,14 +106,21 @@ function median(values: number[]): number {
  * Build the market book. `dolzUsdOn(day)` converts DOLZ-era prices to USD at
  * that day's rate; `heldTokenIds` makes sure our own cards have metadata.
  */
-export async function buildMarketBook(dolzUsdOn: (day: string) => number | null, heldTokenIds: string[]): Promise<MarketBook> {
+export async function buildMarketBook(
+  dolzUsdOn: (day: string) => number | null,
+  heldTokenIds: string[],
+  known: Record<string, CardMeta> = {},
+): Promise<MarketBook> {
   const meta = seedMeta();
+  // Cards we already know (e.g. from the sniper's metadata cache) need no Blockscout lookup.
+  for (const [id, card] of Object.entries(known)) if (card.tier && !meta.has(id)) meta.set(id, card);
   const sales: MarketSale[] = MARKET_SALES_SEED.map(([ts, tokenId, raw]) => ({ ts, tokenId: String(tokenId), raw }));
   const fresh = await fetchNewSales().catch(() => []);
   sales.push(...fresh);
 
   const missing = [...new Set([...heldTokenIds, ...fresh.map((sale) => sale.tokenId)])].filter((id) => !meta.has(id)).slice(0, MAX_NEW_META_PER_REQUEST);
-  for (let index = 0; index < missing.length; index += 4) {
+  const deadline = Date.now() + 15_000;
+  for (let index = 0; index < missing.length && Date.now() < deadline; index += 4) {
     const batch = await Promise.all(missing.slice(index, index + 4).map((id) => fetchMeta(id).catch(() => null)));
     batch.forEach((entry, offset) => {
       if (entry) meta.set(missing[index + offset], entry);
