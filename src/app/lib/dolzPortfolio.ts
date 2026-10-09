@@ -449,6 +449,7 @@ export function buildReport(
   prices: PriceBook,
   wallets: string[],
   market: MarketBook | null = null,
+  prizeCosts: Map<string, { usd: number; dolz: number }> = new Map(),
 ): DolzReport {
   const groups = groupTransfers(transfers, wallets);
 
@@ -543,14 +544,16 @@ export function buildReport(
         continue;
       }
       const meta = transfer.token === DOLZ_NFT && transfer.tokenId ? market?.meta.get(transfer.tokenId) : undefined;
+      // An auction prize costs exactly the bid on the place given by its serial number.
+      const prize = channel === "auction" ? prizeCosts.get(key) : undefined;
       holdings.set(key, {
         id: transfer.tokenId ?? "?",
         collection: collectionLabel(transfer),
         name: transfer.nftName,
         acquiredAt: group.ts,
         channel,
-        costUsd: usd / count,
-        costDolz: dolz / count,
+        costUsd: prize ? prize.usd : usd / count,
+        costDolz: prize ? prize.dolz : dolz / count,
         token: transfer.token,
         card: meta?.card ?? null,
         tier: meta?.tier ?? null,
@@ -659,7 +662,12 @@ export function buildReport(
       const contract = auctionOf(group);
       if (contract) {
         const net = auctionNet.get(contract);
-        const share = net && net.claimed ? { usd: (net.usd / net.claimed) * group.nftIn.length, dolz: (net.dolz / net.claimed) * group.nftIn.length } : { usd: 0, dolz: 0 };
+        const exact = group.nftIn.map((transfer) => prizeCosts.get(tokenKey(transfer)));
+        const share = exact.every(Boolean)
+          ? { usd: exact.reduce((acc, cost) => acc + (cost?.usd ?? 0), 0), dolz: exact.reduce((acc, cost) => acc + (cost?.dolz ?? 0), 0) }
+          : net && net.claimed
+            ? { usd: (net.usd / net.claimed) * group.nftIn.length, dolz: (net.dolz / net.claimed) * group.nftIn.length }
+            : { usd: 0, dolz: 0 };
         acquire(group, "auction", share.usd, share.dolz, "DOLZ (aukcia)", "transfer-in");
         continue;
       }
@@ -995,6 +1003,82 @@ export async function fillIndexGaps(transfers: RawTransfer[], wallets: string[])
   return { added, details };
 }
 
+// ---------------------------------------------------------------------------
+// Auction prizes
+
+const BID_CREATED_TOPIC = "0x7a05ac1b6ef50434d957e30af7d77a87a18ece61017d7e5e5bb94e431a844e04";
+const BID_UPDATED_TOPIC = "0x9b7e56711beda201832eff9ed57917c56e56ed23e585fb7129e05e0111ee51b1";
+const AUCTION_RARITY_ORDER = ["Legendary", "Epic", "Rare", "Limited"];
+
+/** Final bids per rarity of a DOLZ auction (best first), and the token it is paid in. */
+async function auctionRanking(contract: string): Promise<{ token: string; byRarity: Map<number, bigint[]> }> {
+  const token = `0x${(await polygonRpc<string>("eth_call", [{ to: contract, data: "0xfc0c546a" }, "latest"], true)).slice(-40)}`.toLowerCase();
+  const logs = await polygonRpc<RpcLog[]>("eth_getLogs", [
+    { address: contract, topics: [[BID_CREATED_TOPIC, BID_UPDATED_TOPIC]], fromBlock: `0x${GAP_FILL_FROM_BLOCK.toString(16)}`, toBlock: "latest" },
+  ]);
+  logs.sort((a, b) => parseInt(a.blockNumber, 16) - parseInt(b.blockNumber, 16) || parseInt(a.logIndex, 16) - parseInt(b.logIndex, 16));
+  // data: bidder, amount, timestamp, bidId, rarity; an update replaces the bid's amount.
+  const bids = new Map<string, { amount: bigint; ts: bigint; rarity: number }>();
+  for (const log of logs) {
+    const words = log.data.slice(2).match(/.{64}/g) ?? [];
+    if (words.length < 5) continue;
+    bids.set(BigInt(`0x${words[3]}`).toString(), { amount: BigInt(`0x${words[1]}`), ts: BigInt(`0x${words[2]}`), rarity: Number(BigInt(`0x${words[4]}`)) });
+  }
+  const byRarity = new Map<number, { amount: bigint; ts: bigint; id: bigint }[]>();
+  for (const [id, bid] of bids) byRarity.set(bid.rarity, [...(byRarity.get(bid.rarity) ?? []), { ...bid, id: BigInt(id) }]);
+  const sorted = new Map<number, bigint[]>();
+  for (const [rarity, list] of byRarity) {
+    list.sort((a, b) => (a.amount === b.amount ? (a.ts === b.ts ? Number(a.id - b.id) : Number(a.ts - b.ts)) : a.amount > b.amount ? -1 : 1));
+    sorted.set(rarity, list.map((bid) => bid.amount));
+  }
+  return { token, byRarity: sorted };
+}
+
+/**
+ * Cost of each card claimed from a DOLZ auction: a prize's serial number is its place in the final ranking
+ * of its rarity, so it cost exactly the bid on that place. Keyed like holdings (token:id).
+ */
+async function auctionPrizeCosts(groups: TxGroup[], details: Map<string, RawTxDetail>, prices: PriceBook): Promise<Map<string, { usd: number; dolz: number }>> {
+  const contracts = new Set<string>();
+  for (const group of groups) {
+    for (const transfer of group.payOut) if (isBidMethod(transfer.method ?? group.method)) contracts.add(transfer.to);
+  }
+  const claims: { key: string; tokenId: string; contract: string; day: string }[] = [];
+  for (const group of groups) {
+    if (!group.nftIn.length || group.payOut.length) continue;
+    const contract = group.payIn.find((transfer) => contracts.has(transfer.from))?.from ?? (contracts.has(details.get(group.hash)?.to ?? "") ? details.get(group.hash)?.to : null);
+    if (!contract) continue;
+    for (const transfer of group.nftIn) {
+      if (transfer.token === DOLZ_NFT && transfer.tokenId) claims.push({ key: tokenKey(transfer), tokenId: transfer.tokenId, contract, day: dayOf(group.ts) });
+    }
+  }
+  const costs = new Map<string, { usd: number; dolz: number }>();
+  if (!claims.length) return costs;
+  const rankings = new Map<string, Awaited<ReturnType<typeof auctionRanking>>>();
+  for (const contract of new Set(claims.map((claim) => claim.contract))) {
+    const ranking = await auctionRanking(contract).catch(() => null);
+    if (ranking) rankings.set(contract, ranking);
+  }
+  for (let index = 0; index < claims.length; index += 12) {
+    await Promise.all(
+      claims.slice(index, index + 12).map(async (claim) => {
+        const ranking = rankings.get(claim.contract);
+        const card = ranking ? await fetchCardJson(claim.tokenId).catch(() => null) : null;
+        const rarity = card?.rarity ? AUCTION_RARITY_ORDER.indexOf(card.rarity) : -1;
+        const place = Number(card?.serial ?? 0);
+        const amount = ranking && rarity >= 0 ? ranking.byRarity.get(rarity)?.[place - 1] : undefined;
+        const pay = ranking ? PAYMENT_TOKENS[ranking.token] : undefined;
+        if (!amount || !pay) return;
+        const units = Number(amount) / 10 ** pay.decimals;
+        const dolzPrice = lookup(prices.dolz, claim.day, prices.dolzNow);
+        if (pay.kind === "DOLZ") costs.set(claim.key, { usd: dolzPrice ? units * dolzPrice : 0, dolz: units });
+        else if (pay.kind === "USD") costs.set(claim.key, { usd: units, dolz: dolzPrice ? units / dolzPrice : 0 });
+      }),
+    );
+  }
+  return costs;
+}
+
 export async function getDolzReport(wallets = configuredDolzWallets()): Promise<DolzReport> {
   // Blockscout (when it answers) supplies decoded method names and card names; the chain fills in the rest,
   // and is the whole source when Blockscout refuses us.
@@ -1025,5 +1109,6 @@ export async function getDolzReport(wallets = configuredDolzWallets()): Promise<
   const prices = await buildPriceBook(transfers);
   const ownTokenIds = [...new Set(transfers.filter((t) => t.token === DOLZ_NFT && t.tokenId).map((t) => t.tokenId as string))];
   const market = await buildMarketBook((day) => lookup(prices.dolz, day, prices.dolzNow), ownTokenIds).catch(() => null);
-  return buildReport(transfers, details, prices, wallets, market);
+  const prizeCosts = await auctionPrizeCosts(groups, details, prices).catch(() => new Map<string, { usd: number; dolz: number }>());
+  return buildReport(transfers, details, prices, wallets, market, prizeCosts);
 }
