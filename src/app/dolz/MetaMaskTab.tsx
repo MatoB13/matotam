@@ -7,6 +7,12 @@ import ShieldPanel from "./ShieldPanel";
 import { errorText, estimateGas, POLYGON, polygonFees, provider, short, waitForReceipt, word, type Eip1193 } from "./metamask";
 
 const CARDS_STORAGE_KEY = "dolz-mm-cards-v1";
+const PAGE_SIZE = 10;
+type MetaMaskView = "cards" | "shield";
+const VIEWS: { id: MetaMaskView; label: string }[] = [
+  { id: "cards", label: "Karty" },
+  { id: "shield", label: "Povolenia a štít" },
+];
 // The portfolio tab keeps its last report here; its holdings name cards Blockscout has no metadata for.
 const REPORT_STORAGE_KEY = "dolz-report-v1";
 
@@ -83,6 +89,8 @@ export default function MetaMaskTab({ token }: { token: string }) {
   const [account, setAccount] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const [view, setView] = useState<MetaMaskView>("cards");
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -197,6 +205,9 @@ export default function MetaMaskTab({ token }: { token: string }) {
     if (!query) return cards;
     return cards.filter((card) => [card.name, card.card, card.rarity, card.id].some((value) => value?.toLowerCase().includes(query)));
   }, [cards, filter]);
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageCards = visible.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const allVisibleSelected = visible.length > 0 && visible.every((card) => selected.has(`${card.contract}:${card.id}`));
   const toggle = (key: string) =>
     setSelected((current) => {
@@ -208,7 +219,24 @@ export default function MetaMaskTab({ token }: { token: string }) {
 
   return (
     <div className={styles.sniperTab}>
-      <section className={styles.panelFull}>
+      <nav className={`${styles.tabBar} ${styles.subTabBar}`} role="tablist" aria-label="MetaMask">
+        {VIEWS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={view === item.id}
+            className={view === item.id ? styles.tabActive : styles.tab}
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+            {item.id === "cards" && cards.length ? ` (${cards.length})` : ""}
+          </button>
+        ))}
+      </nav>
+
+      {view === "shield" ? <ShieldPanel token={token} /> : null}
+      <section className={styles.panelFull} hidden={view !== "cards"}>
         <div className={styles.panelTitleRow}>
           <h2>Karty v MetaMasku</h2>
           <span>
@@ -229,7 +257,10 @@ export default function MetaMaskTab({ token }: { token: string }) {
             placeholder="Hľadať meno, číslo karty, raritu…"
             aria-label="Filtrovať karty"
             value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            onChange={(event) => {
+              setFilter(event.target.value);
+              setPage(0);
+            }}
           />
           <span className={styles.mutedText}>Vybrané: {selected.size}</span>
           <button
@@ -261,7 +292,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
                 <th>
                   <input
                     type="checkbox"
-                    aria-label="Vybrať všetky zobrazené karty"
+                    aria-label="Vybrať všetky karty vo filtri (na všetkých stranách)"
                     checked={allVisibleSelected}
                     onChange={() =>
                       setSelected((current) => {
@@ -290,7 +321,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
                   </td>
                 </tr>
               ) : (
-                visible.map((card) => {
+                pageCards.map((card) => {
                   const key = `${card.contract}:${card.id}`;
                   return (
                     <tr key={key} className={selected.has(key) ? styles.sellSelected : undefined}>
@@ -330,8 +361,20 @@ export default function MetaMaskTab({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
+        {visible.length > PAGE_SIZE ? (
+          <div className={styles.sellBulk}>
+            <button type="button" className={styles.refreshButton} disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
+              ‹ Predošlá
+            </button>
+            <span className={styles.mutedText}>
+              Strana {currentPage + 1} z {pageCount} · {visible.length} {filter ? "kariet vo filtri" : "kariet"}
+            </span>
+            <button type="button" className={styles.refreshButton} disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>
+              Ďalšia ›
+            </button>
+          </div>
+        ) : null}
       </section>
-      <ShieldPanel token={token} />
     </div>
   );
 }
