@@ -360,6 +360,31 @@ export async function getSniperCards(token: SniperAuth, ids: string[]): Promise<
   return json.cards ?? {};
 }
 
+export type DolzShieldApproval = {
+  kind: "all" | "erc20" | "token";
+  contract: string;
+  operator: string;
+  token: string;
+  label: string | null;
+  known: boolean;
+  amount?: string;
+  token_id?: string;
+};
+
+export type DolzShieldAlert = { at: number; wallet: string; kind: string; message: string; tx: string };
+
+export type DolzShieldStatus = {
+  wallets: string[];
+  approvals: Record<string, DolzShieldApproval[]>;
+  alerts: DolzShieldAlert[];
+  checked: number;
+};
+
+/** The shield's view of the MetaMask wallet: live approvals and recent alerts. */
+export async function getSniperShield(token: SniperAuth): Promise<DolzShieldStatus> {
+  return await callSniper<DolzShieldStatus>("/shield", token, undefined, 60_000);
+}
+
 export function isSniperConfigured(): boolean {
   return !!sniperUrl();
 }

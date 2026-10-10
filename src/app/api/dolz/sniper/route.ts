@@ -8,6 +8,7 @@ import {
   requestSniperRescan,
   saveSniperAuction,
   claimSniperAuction,
+  getSniperShield,
   saveSniperConfig,
   sniperBuyNow,
   sniperOffer,
@@ -29,6 +30,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, auction: await getSniperAuction(token) }, { headers });
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." }, { status: 502, headers });
+    }
+  }
+  if (request.nextUrl.searchParams.get("view") === "shield") {
+    try {
+      return NextResponse.json({ ok: true, shield: await getSniperShield(token) }, { headers });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Štít sa nepodarilo načítať." }, { status: 502, headers });
     }
   }
   if (request.nextUrl.searchParams.get("view") === "offers") {
