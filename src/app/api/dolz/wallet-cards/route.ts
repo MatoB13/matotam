@@ -46,9 +46,15 @@ export async function GET(request: NextRequest) {
         )
       : listed;
     // Market floor of the same card and rarity, from the sniper's collection (refreshed every 10 minutes).
+    // Cards whose number / rarity only the page knows (from the stored portfolio report) look theirs up in `floors`.
     const collection = (await getSniperCollection(request.nextUrl.searchParams.get("token") ?? "").catch(() => null))?.collection ?? null;
     const cards = named.map((card) => ({ ...card, floorUsd: floorFor(collection, card.card, card.rarity) }));
-    return NextResponse.json({ ok: true, address, target: SNIPER_HOT_WALLET, cards, source }, { headers });
+    const floors = Object.fromEntries(
+      Object.entries(collection?.floors ?? {})
+        .filter(([key, floor]) => key.includes("|") && floor?.price_usd != null)
+        .map(([key, floor]) => [key, floor.price_usd]),
+    );
+    return NextResponse.json({ ok: true, address, target: SNIPER_HOT_WALLET, cards, floors, source }, { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Načítanie kariet zlyhalo.";
     return NextResponse.json({ ok: false, error: message }, { status: 502, headers });

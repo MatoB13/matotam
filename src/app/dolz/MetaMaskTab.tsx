@@ -48,15 +48,23 @@ function readStorage<T>(key: string): T | null {
   }
 }
 
-/** Fill names, rarity and value from the stored portfolio report, then sort by card name and serial. */
-function enrich(cards: DolzWalletCard[]): DolzWalletCard[] {
+type Floors = Record<string, number>;
+
+/** Market floor of the same card and rarity ("g0131|limited"), once the card number and rarity are known. */
+function withFloor(card: DolzWalletCard, floors: Floors): DolzWalletCard {
+  const key = card.card && card.rarity ? `${card.card.toLowerCase()}|${card.rarity.toLowerCase()}` : null;
+  return { ...card, floorUsd: card.floorUsd ?? (key ? floors[key] : undefined) ?? null };
+}
+
+/** Fill names, rarity and value from the stored portfolio report, then the market floor; sort by card name and serial. */
+function enrich(cards: DolzWalletCard[], floors: Floors = {}): DolzWalletCard[] {
   const holdings = readStorage<{ holdings?: ReportHolding[] }>(REPORT_STORAGE_KEY)?.holdings ?? [];
   const byKey = new Map(holdings.map((holding) => [`${holding.token.toLowerCase()}:${holding.id}`, holding]));
   return cards
     .map((card) => {
       const holding = byKey.get(`${card.contract}:${card.id}`);
-      if (!holding) return card;
-      return {
+      if (!holding) return withFloor(card, floors);
+      return withFloor({
         ...card,
         name: card.name ?? holding.name?.trim() ?? null,
         card: card.card ?? holding.card,
@@ -66,7 +74,7 @@ function enrich(cards: DolzWalletCard[]): DolzWalletCard[] {
         valueUsd: holding.valueUsd ?? card.valueUsd,
         costUsd: holding.costUsd,
         channel: holding.channel,
-      };
+      }, floors);
     })
     .sort(
       (a, b) =>
@@ -99,14 +107,14 @@ export default function MetaMaskTab({ token }: { token: string }) {
     setLoading(true);
     try {
       const response = await fetch(`/api/dolz/wallet-cards?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      const json = (await response.json()) as { ok: boolean; address?: string; target?: string; cards?: DolzWalletCard[]; error?: string };
+      const json = (await response.json()) as { ok: boolean; address?: string; target?: string; cards?: DolzWalletCard[]; floors?: Floors; error?: string };
       if (!response.ok || !json.ok || !json.cards) throw new Error(json.error || `HTTP ${response.status}`);
       setAddress(json.address ?? null);
       setTarget(json.target ?? null);
-      setCards(enrich(json.cards));
+      setCards(enrich(json.cards, json.floors));
       setError(null);
       try {
-        window.localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify({ address: json.address, target: json.target, cards: json.cards }));
+        window.localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify({ address: json.address, target: json.target, cards: json.cards, floors: json.floors }));
       } catch {
         // Storage full or blocked: the list just loads from the server next time.
       }
@@ -120,11 +128,11 @@ export default function MetaMaskTab({ token }: { token: string }) {
   useEffect(() => {
     const id = window.setTimeout(() => {
       // Show the last list at once while the current one loads.
-      const stored = readStorage<{ address?: string; target?: string; cards?: DolzWalletCard[] }>(CARDS_STORAGE_KEY);
+      const stored = readStorage<{ address?: string; target?: string; cards?: DolzWalletCard[]; floors?: Floors }>(CARDS_STORAGE_KEY);
       if (stored?.cards) {
         setAddress((current) => current ?? stored.address ?? null);
         setTarget((current) => current ?? stored.target ?? null);
-        setCards((current) => (current.length ? current : enrich(stored.cards ?? [])));
+        setCards((current) => (current.length ? current : enrich(stored.cards ?? [], stored.floors)));
       }
       void load();
     }, 0);
