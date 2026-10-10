@@ -1079,7 +1079,8 @@ async function auctionPrizeCosts(groups: TxGroup[], details: Map<string, RawTxDe
         const amount = ranking && rarity >= 0 ? ranking.byRarity.get(rarity)?.[place - 1] : undefined;
         const pay = ranking ? PAYMENT_TOKENS[ranking.token] : undefined;
         if (!amount || !pay) return;
-        const units = Number(amount) / 10 ** pay.decimals;
+        // The DOLZ-paid auctions log bids in whole tokens (4888), the USDC one in base units (91_240_000).
+        const units = amount < 10n ** BigInt(Math.floor(pay.decimals / 2)) ? Number(amount) : Number(amount) / 10 ** pay.decimals;
         const dolzPrice = lookup(prices.dolz, claim.day, prices.dolzNow);
         if (pay.kind === "DOLZ") costs.set(claim.key, { usd: dolzPrice ? units * dolzPrice : 0, dolz: units });
         else if (pay.kind === "USD") costs.set(claim.key, { usd: units, dolz: dolzPrice ? units / dolzPrice : 0 });
