@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
+import { floorClass } from "./floor";
 import type { DolzSellCard, DolzSellInventory, DolzSellOffer, DolzSellResult } from "@/app/lib/dolzSniper";
 
 const DEFAULT_DURATIONS = [1, 2, 3, 7, 30, 90, 180];
@@ -254,6 +255,7 @@ export default function SellPanel({ token }: { token: string }) {
               <th>Karta</th>
               <th>Rarita</th>
               <th className={styles.num}>Kúpené</th>
+              <th className={styles.num} title="Najnižšia aktuálna ponuka rovnakej karty a rarity na DOLZ markete">Najnižšia</th>
               <th className={styles.num}>Trh</th>
               <th>Vystavené</th>
               <th>Ponuky kupcov</th>
@@ -265,7 +267,7 @@ export default function SellPanel({ token }: { token: string }) {
           <tbody>
             {!cards.length ? (
               <tr>
-                <td colSpan={10} className={styles.emptyCell}>
+                <td colSpan={11} className={styles.emptyCell}>
                   {loading ? "Načítavam karty z hot walletu…" : "Na hot wallete nie sú žiadne karty."}
                 </td>
               </tr>
@@ -301,6 +303,9 @@ export default function SellPanel({ token }: { token: string }) {
                     <td className={styles.num}>
                       {formatUsd(card.bought_usd)}
                       {card.bought_via && card.bought_via !== "sniper" ? <small className={styles.mutedText}> · {card.bought_via}</small> : null}
+                    </td>
+                    <td className={`${styles.num} ${floorClass(card.floor_usd, card.bought_usd)}`} title="Najnižšia aktuálna ponuka rovnakej karty a rarity na DOLZ markete">
+                      {formatUsd(card.floor_usd)}
                     </td>
                     <td className={styles.num} title={card.market ? `${card.market.sales} predajov (${card.market.source})` : "Žiadne predaje za USDC"}>
                       {formatUsd(card.market?.usd)}

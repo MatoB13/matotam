@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildMarketBook, DOLZ_NFT } from "@/app/lib/dolzMarket";
-import { answerSniperOffer, cancelSniperListings, getSniperInventory, listSniperCards, transferSniperCards } from "@/app/lib/dolzSniper";
+import { answerSniperOffer, cancelSniperListings, floorFor, getSniperCollection, getSniperInventory, listSniperCards, transferSniperCards } from "@/app/lib/dolzSniper";
 import { cachedDolzReport, portfolioWallets } from "@/app/lib/dolzWalletCards";
 import { isDolzAuthorized } from "../auth";
 
@@ -51,12 +51,14 @@ export async function GET(request: NextRequest) {
     const costs = new Map(
       (report?.holdings ?? []).filter((holding) => holding.token === DOLZ_NFT && holding.costUsd > 0).map((holding) => [holding.id, holding.costUsd]),
     );
+    const collection = (await getSniperCollection(token).catch(() => null))?.collection ?? null;
     const cards = inventory.cards.map((card) => {
       const cost = card.bought_usd == null ? costs.get(card.token_id) : undefined;
       return {
         ...card,
         ...(cost != null ? { bought_usd: cost, bought_via: "portfólio" as const } : {}),
         market: market?.value(card.token_id) ?? null,
+        floor_usd: floorFor(collection, card.card, card.rarity),
       };
     });
     return NextResponse.json({ ok: true, inventory: { ...inventory, cards } }, { headers });

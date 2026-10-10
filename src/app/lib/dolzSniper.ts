@@ -176,6 +176,8 @@ export type DolzSellCard = {
   bought_at: string | null;
   /** Where the purchase price comes from: the sniper's own buy, the winning auction bid, or the portfolio. */
   bought_via?: "sniper" | "aukcia" | "portfólio" | null;
+  /** Cheapest live listing of the same card and rarity (USD), filled in by the dashboard. */
+  floor_usd?: number | null;
   listing: DolzSellListing | null;
   /** Open offers from buyers, highest first. */
   offers?: DolzSellOffer[];
@@ -252,9 +254,15 @@ export type DolzCollection = {
   /** Held tokens whose card number is not known yet. */
   unknownTokens: string[];
   catalog: { card: string; name: string | null; season: string | null }[];
-  /** Cheapest live listing per card number. */
+  /** Cheapest live listing per card number ("g0184") and per card number and rarity ("g0184|limited"). */
   floors: Record<string, DolzCollectionFloor>;
 };
+
+/** Cheapest live listing of the same card and rarity, in USD. */
+export function floorFor(collection: DolzCollection | null, card: string | null | undefined, rarity: string | null | undefined): number | null {
+  if (!collection || !card || !rarity) return null;
+  return collection.floors[`${card.toLowerCase()}|${rarity.toLowerCase()}`]?.price_usd ?? null;
+}
 
 /** Which cards the owner holds and the market floor per card, refreshed by the sniper every 10 minutes. */
 export async function getSniperCollection(token: SniperAuth): Promise<{ collection: DolzCollection | null; refreshing: boolean }> {

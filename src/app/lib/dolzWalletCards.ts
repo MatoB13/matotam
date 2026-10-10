@@ -34,6 +34,8 @@ export type DolzWalletCard = {
   costUsd?: number | null;
   /** How it was acquired: dolz-market, opensea, mint, card, auction, free. */
   channel?: string | null;
+  /** Cheapest live listing of the same card and rarity on the DOLZ market (USD). */
+  floorUsd?: number | null;
 };
 
 type BlockscoutNft = {

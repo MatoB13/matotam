@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDolzAuthorized } from "../auth";
-import { getSniperCards, getSniperWallet } from "@/app/lib/dolzSniper";
+import { floorFor, getSniperCards, getSniperCollection, getSniperWallet } from "@/app/lib/dolzSniper";
 import { portfolioWallets, SNIPER_HOT_WALLET, sortCards, walletCards } from "@/app/lib/dolzWalletCards";
 
 const MAIN_WALLET = "0xa4cd3de07dafa3f700c908043118b39547190143";
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       .map((card) => card.id)
       .sort((a, b) => Number(b) - Number(a));
     const meta = await getSniperCards(request.nextUrl.searchParams.get("token") ?? "", unnamed).catch(() => ({}) as Awaited<ReturnType<typeof getSniperCards>>);
-    const cards = unnamed.length
+    const named = unnamed.length
       ? sortCards(
           listed.map((card) => {
             const known = card.contract === DOLZ_NFT && !card.name ? meta[card.id] : undefined;
@@ -45,6 +45,9 @@ export async function GET(request: NextRequest) {
           }),
         )
       : listed;
+    // Market floor of the same card and rarity, from the sniper's collection (refreshed every 10 minutes).
+    const collection = (await getSniperCollection(request.nextUrl.searchParams.get("token") ?? "").catch(() => null))?.collection ?? null;
+    const cards = named.map((card) => ({ ...card, floorUsd: floorFor(collection, card.card, card.rarity) }));
     return NextResponse.json({ ok: true, address, target: SNIPER_HOT_WALLET, cards, source }, { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Načítanie kariet zlyhalo.";

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./dolz.module.css";
 import type { DolzWalletCard } from "@/app/lib/dolzWalletCards";
 import ShieldPanel from "./ShieldPanel";
+import { floorClass } from "./floor";
 import { errorText, estimateGas, POLYGON, polygonFees, provider, short, waitForReceipt, word, type Eip1193 } from "./metamask";
 
 const CARDS_STORAGE_KEY = "dolz-mm-cards-v1";
@@ -309,6 +310,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
                 <th>Karta</th>
                 <th>Rarita</th>
                 <th className={styles.num}>Kúpené</th>
+                <th className={styles.num} title="Najnižšia aktuálna ponuka rovnakej karty a rarity na DOLZ markete">Najnižšia</th>
                 <th className={styles.num}>Odhad</th>
                 <th />
               </tr>
@@ -316,7 +318,7 @@ export default function MetaMaskTab({ token }: { token: string }) {
             <tbody>
               {!visible.length ? (
                 <tr>
-                  <td colSpan={6} className={styles.emptyCell}>
+                  <td colSpan={7} className={styles.emptyCell}>
                     {loading ? "Načítavam karty z blockchainu…" : filter ? "Nič nezodpovedá filtru." : "V tomto wallete nie sú žiadne DOLZ karty."}
                   </td>
                 </tr>
@@ -342,6 +344,12 @@ export default function MetaMaskTab({ token }: { token: string }) {
                       <td className={styles.num} title={card.channel ? `Získané: ${CHANNEL_LABELS[card.channel] ?? card.channel}` : undefined}>
                         {card.costUsd != null ? `$${card.costUsd.toFixed(2)}` : "—"}
                         {card.channel ? <small className={styles.mutedText}> · {CHANNEL_LABELS[card.channel] ?? card.channel}</small> : null}
+                      </td>
+                      <td
+                        className={`${styles.num} ${floorClass(card.floorUsd, card.costUsd)}`}
+                        title="Najnižšia aktuálna ponuka rovnakej karty a rarity na DOLZ markete"
+                      >
+                        {card.floorUsd != null ? `$${card.floorUsd.toFixed(2)}` : "—"}
                       </td>
                       <td className={styles.num}>{card.valueUsd != null ? `$${card.valueUsd.toFixed(2)}` : "—"}</td>
                       <td>
