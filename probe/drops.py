@@ -14,6 +14,14 @@ logs = []
 for s in range(latest - 200 * 43200, latest + 1, 250_000):
     logs += rpc("eth_getLogs", [{"address": NFT, "topics": [T, Z], "fromBlock": hex(s), "toBlock": hex(min(latest, s + 249_999))}]) or []
 print("mints", len(logs))
+recv = collections.Counter("0x" + l["topics"][2][-40:] for l in logs)
+print("top mint receivers:", recv.most_common(8))
+# Cards then leave those holders: find bursts of transfers from them to many distinct wallets.
+logs = []
+for holder, _ in recv.most_common(4):
+    for s in range(latest - 200 * 43200, latest + 1, 250_000):
+        logs += rpc("eth_getLogs", [{"address": NFT, "topics": [T, "0x" + holder[2:].rjust(64, "0")], "fromBlock": hex(s), "toBlock": hex(min(latest, s + 249_999))}]) or []
+print("transfers out of top holders", len(logs))
 by_block = collections.defaultdict(list)
 for l in logs: by_block[int(l["blockNumber"], 16)].append(l)
 blocks = sorted(by_block)
@@ -37,6 +45,7 @@ for c in big:
     per_block = collections.Counter(int(l["blockNumber"], 16) - c[0] for l in ls)
     print("  mints per block offset (first 20):", sorted(per_block.items())[:20])
     per_recv = collections.Counter(l["topics"][2] for l in ls)
+    print("  senders:", collections.Counter("0x"+l["topics"][1][-40:] for l in ls).most_common(3))
     print("  mints per receiver distribution:", collections.Counter(per_recv.values()).most_common(8))
 for c in big[-3:]:
     print(f"\nDETAIL cluster {c[0]}")
@@ -50,7 +59,7 @@ for c in big[-3:]:
     print("  tx.to:", tos.most_common(5)); print("  selectors:", sels.most_common(5)); print("  distinct senders in first 80:", len(froms), froms.most_common(3))
     for h in sample:
         tx = rpc("eth_getTransactionByHash", [h]); rc = rpc("eth_getTransactionReceipt", [h])
-        nm = sum(1 for l in rc["logs"] if l["address"] == NFT and l["topics"][0] == T and l["topics"][1] == Z)
+        nm = sum(1 for l in rc["logs"] if l["address"] == NFT and l["topics"][0] == T)
         pays = [(l["address"][-6:], int(l["data"], 16) if l["data"] != "0x" else 0, "0x" + l["topics"][2][-40:]) for l in rc["logs"] if l["topics"][0] == T and l["address"] != NFT]
         print(f"  blk+{int(tx['blockNumber'],16)-c[0]} idx {int(tx['transactionIndex'],16)} from {tx['from'][:10]} to {tx['to']} sel {tx['input'][:10]} len {len(tx['input'])} type {tx.get('type')} prio {int(tx.get('maxPriorityFeePerGas','0x0'),16)/1e9:.0f} max {int(tx.get('maxFeePerGas', tx['gasPrice']),16)/1e9:.0f} gwei status {rc['status']} gasUsed {int(rc['gasUsed'],16)} mints {nm} pays {pays[:3]}")
     # what happened on the sale contract just before the first mint (opening tx?)
