@@ -12,7 +12,7 @@ def api(payload):
     except Exception as e:
         return repr(e)
 def rpc(m, p):
-    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=60).read()))
+    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=60).read())
     return r.get("result", r.get("error"))
 S = "0x56b199b39bfa1d6fff8c363a7116ee34274a747e"
 for url in [f"https://sourcify.dev/server/v2/contract/137/{S}?fields=sources", f"https://repo.sourcify.dev/contracts/full_match/137/{S}/metadata.json", f"https://repo.sourcify.dev/contracts/partial_match/137/{S}/metadata.json"]:
