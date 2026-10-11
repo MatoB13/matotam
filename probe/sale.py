@@ -1,31 +1,45 @@
-# One-off check: the user's recent marketplace sales and how each sold card was acquired (public chain data).
-import urllib.request, json, datetime
+# One-off research: how buyers interacted with the g0201 sale contract (16 Sep 2026, 13:00 UTC).
+import urllib.request, json, collections, datetime
 def rpc(m, p):
-    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=60).read())
-    return r.get("result")
-def card(tid):
-    try:
-        d = json.loads(urllib.request.urlopen(urllib.request.Request(f"https://cardsdata.dolz.io/jsons/{tid}.json", headers={"user-agent": "Mozilla/5.0"}), timeout=20).read())
-        a = {x["trait_type"]: x["value"] for x in d.get("attributes", [])}
-        return f'{d.get("name")} {a.get("Rarity")} #{a.get("Serial Number")}'
-    except Exception as e: return f"? {e}"
-SM = "0xe7693ba9cf616a55b88f3ca7b74db3358b5767ee"; SALE = "0x2b5c13abb9a5bb44b8c0573ec2ed9d9f2113bc77c8ba0ef031c8143111a87aa6"
-NFT = "0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc"; T = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-W = {"main": "0xa4cd3de07dafa3f700c908043118b39547190143", "kernel": "0x49fcb83bed9983b9b9e4cf4e067c66e70d874a9d", "hot": "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6"}
-topic = lambda a: "0x" + "0" * 24 + a[2:]
-latest = int(rpc("eth_blockNumber", []), 16)
-ts = lambda l: datetime.datetime.utcfromtimestamp(int(l["blockTimestamp"], 16)).isoformat()
-for name, w in W.items():
-    for role, topics in [("SOLD", [SALE, topic(w)]), ("BOUGHT", [SALE, None, topic(w)])]:
-        for l in rpc("eth_getLogs", [{"address": SM, "topics": topics, "fromBlock": hex(latest - 43200 * 5), "toBlock": "latest"}]) or []:
-            words = [l["data"][2 + i * 64: 66 + i * 64] for i in range(4)]
-            tid = int(words[0], 16); price = int(words[1], 16) / 1e6
-            print(f"{ts(l)} {name} {role} token {tid} {card(tid)} for ${price:.2f} tx {l['transactionHash']}")
-            if role == "SOLD":
-                # how did we get this token?
-                for w2n, w2 in W.items():
-                    for x in rpc("eth_getLogs", [{"address": NFT, "topics": [T, None, topic(w2), "0x" + hex(tid)[2:].rjust(64, "0")], "fromBlock": hex(70_000_000), "toBlock": "latest"}]) or []:
-                        rc = rpc("eth_getTransactionReceipt", [x["transactionHash"]])
-                        pays = [(y["address"][:10], int(y["data"], 16) / 1e6, "from " + y["topics"][1][-40:][:8], "to " + y["topics"][2][-40:][:8]) for y in rc["logs"] if y["topics"][0] == T and len(y["topics"]) == 3]
-                        sale = [int(y["data"][66:130], 16) / 1e6 for y in rc["logs"] if y["topics"][0] == SALE]
-                        print(f"    acquired by {w2n} at {ts(x)} from 0x{x['topics'][1][-40:][:8]} tx {x['transactionHash']} sale-price {sale} erc20 {pays}")
+    for _ in range(3):
+        try:
+            r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=120).read())
+            if "error" in r: print("ERR", m, r["error"]); return None
+            return r.get("result")
+        except Exception as e: print("retry", e)
+S = "0x56b199b39bfa1d6fff8c363a7116ee34274a747e"
+print("code size", (len(rpc("eth_getCode", [S, "latest"])) - 2) // 2)
+for name, sel in [("owner", "0x8da5cb5b"), ("token", "0xfc0c546a"), ("paused", "0x5c975abb"), ("price", "0xa035b1fe"), ("maxPerWallet", "0x453c2310"), ("startTime", "0x78e97925"), ("totalSupply", "0x18160ddd")]:
+    print(name, rpc("eth_call", [{"to": S, "data": sel}, "latest"]))
+logs = rpc("eth_getLogs", [{"address": S, "fromBlock": hex(93_800_000), "toBlock": hex(93_960_000)}]) or []
+print("contract logs", len(logs), collections.Counter(l["topics"][0] for l in logs).most_common(8))
+for l in logs[:4] + logs[-3:]:
+    print(" ", int(l["blockNumber"], 16), l["topics"], l["data"][:300])
+# transactions to the contract in the blocks around the burst
+start = 93905700
+senders, sels, statuses = collections.Counter(), collections.Counter(), collections.Counter()
+first = None
+for b in range(start, start + 25):
+    blk = rpc("eth_getBlockByNumber", [hex(b), True])
+    ts = int(blk["timestamp"], 16)
+    to_s = [t for t in blk["transactions"] if (t["to"] or "").lower() == S]
+    if to_s and first is None: first = b
+    if to_s:
+        prios = []
+        for t in to_s:
+            rc = rpc("eth_getTransactionReceipt", [t["hash"]])
+            senders[t["from"]] += 1; sels[t["input"][:10]] += 1; statuses[rc["status"]] += 1
+            prios.append((int(t.get("maxPriorityFeePerGas", t["gasPrice"]), 16) // 10**9, int(t["transactionIndex"], 16), rc["status"][-1]))
+        print(b, datetime.datetime.utcfromtimestamp(ts), "txs to sale", len(to_s), "prio/idx/ok:", sorted(prios, reverse=True)[:12])
+print("first block with sale txs", first, "senders", len(senders), "top", senders.most_common(5), "selectors", sels.most_common(5), "status", statuses)
+if first:
+    blk = rpc("eth_getBlockByNumber", [hex(first), True])
+    for t in [t for t in blk["transactions"] if (t["to"] or "").lower() == S][:3]:
+        print("sample input", t["from"], t["input"][:400], "value", int(t["value"], 16))
+        rc = rpc("eth_getTransactionReceipt", [t["hash"]])
+        for l in rc["logs"]: print("   log", l["address"], l["topics"][:3], l["data"][:200])
+# what happened in the 30 blocks before the first buy: any tx from DOLZ to the contract (opening)?
+for b in range(start - 40, start):
+    blk = rpc("eth_getBlockByNumber", [hex(b), True])
+    for t in blk["transactions"]:
+        if (t["to"] or "").lower() == S: print("pre", b, t["from"], t["input"][:200])
