@@ -359,6 +359,53 @@ export async function claimSniperAuction(token: SniperAuth, contract: unknown): 
   return (await callSniper<{ claim: DolzAuctionClaim }>("/auction/claim", token, { method: "POST", body: JSON.stringify({ contract }) }, 120_000)).claim;
 }
 
+export type DolzDropConfig = {
+  enabled: boolean;
+  card: string;
+  contract: string;
+  max_qty: number;
+  max_usd: number;
+  max_tokens: number;
+  priority_gwei: number;
+};
+
+/** The next DOLZ direct sale as the sniper sees it (contract read from chain, price found by simulation). */
+export type DolzDropStatus = {
+  config: DolzDropConfig;
+  planning?: { card: string; name: string; planned: number; contract: string; state: string | null } | null;
+  contract?: string;
+  state?: string;
+  updated?: number;
+  wallet?: string | null;
+  token?: string;
+  decimals?: number;
+  symbol?: string;
+  stable?: boolean;
+  start?: number | null;
+  start_at?: number | null;
+  mint_cap?: number | null;
+  root?: string | null;
+  whitelist?: { size: number; root_ok: boolean | null; wallets: Record<string, number> };
+  /** Merkle proofs (concatenated 32-byte words) for the owner's whitelisted wallets. */
+  proofs?: Record<string, string>;
+  minted?: number;
+  price?: number | null;
+  price_usd?: number | null;
+  balance?: number;
+  allowance?: number;
+  pol?: number;
+  qty?: number;
+  hot_whitelist?: number;
+};
+
+export async function getSniperDrop(token: SniperAuth): Promise<DolzDropStatus> {
+  return (await callSniper<{ drop: DolzDropStatus }>("/drop", token, undefined, 20_000)).drop;
+}
+
+export async function saveSniperDrop(token: SniperAuth, config: unknown): Promise<DolzDropConfig> {
+  return (await callSniper<{ config: DolzDropConfig }>("/drop", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
+}
+
 export type DolzSniperCardMeta = { name: string | null; card: string | null; tier: string | null; serial: string | number | null; rarity: string | null };
 
 /** Card names and attributes the sniper knows (its metadata cache, filled from chain), for up to 100 DolzNFT ids. */

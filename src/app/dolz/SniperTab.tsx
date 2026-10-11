@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import AuctionPanel from "./AuctionPanel";
+import DropPanel from "./DropPanel";
 import OfferPanel from "./OfferPanel";
 import QuickBuy from "./QuickBuy";
 import SellPanel from "./SellPanel";
@@ -56,12 +57,13 @@ type ConfigDraft = { enabled: boolean; dry_run: boolean; daily_budget_usd: strin
 
 let nextRuleId = 1;
 
-type SniperView = "settings" | "purchases" | "sell" | "auction";
+type SniperView = "settings" | "purchases" | "sell" | "auction" | "drop";
 const VIEWS: { id: SniperView; label: string }[] = [
   { id: "settings", label: "Nastavenia" },
   { id: "purchases", label: "Nákupy a pokusy" },
   { id: "sell", label: "Predaj" },
   { id: "auction", label: "Aukcia" },
+  { id: "drop", label: "Drop" },
 ];
 
 type CatalogCard = { card: string; name: string; season: string | null; tiers: string[] };
@@ -473,6 +475,7 @@ export default function SniperTab({ token }: { token: string }) {
 
       {view === "sell" ? <SellPanel token={token} /> : null}
       {view === "auction" ? <AuctionPanel token={token} /> : null}
+      {view === "drop" ? <DropPanel token={token} /> : null}
 
       {view === "purchases" ? <QuickBuy token={token} onBought={() => void load(false)} /> : null}
       {view === "purchases" ? <OfferPanel token={token} /> : null}
