@@ -127,10 +127,13 @@ export default function DropPanel({ token }: { token: string }) {
       const chain = (await eth.request({ method: "eth_chainId" })) as string;
       if (chain.toLowerCase() !== POLYGON) await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: POLYGON }] });
       const qty = BigInt(allocation);
-      const amount = qty * BigInt(drop.price);
+      // The USDC version takes base units ($10 = 10_000_000), the DOLZ one whole tokens.
+      const perCard = BigInt(Math.round(drop.price_raw ?? drop.price));
+      const amount = qty * perCard;
+      const allowance = drop.base_units ? amount : amount * 10n ** BigInt(drop.decimals);
       const tx =
         action === "approve"
-          ? { from, to: drop.token, value: "0x0", data: SEL_APPROVE + word(contract) + word((amount * 10n ** BigInt(drop.decimals)).toString(16)) }
+          ? { from, to: drop.token, value: "0x0", data: SEL_APPROVE + word(contract) + word(allowance.toString(16)) }
           : {
               from,
               to: contract,

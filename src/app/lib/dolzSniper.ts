@@ -390,6 +390,10 @@ export type DolzDropStatus = {
   proofs?: Record<string, string>;
   minted?: number;
   price?: number | null;
+  /** What the contract takes per card: base units for the USDC version, whole tokens for the DOLZ one. */
+  price_raw?: number | null;
+  base_units?: boolean;
+  mint_selector?: string | null;
   price_usd?: number | null;
   balance?: number;
   allowance?: number;
