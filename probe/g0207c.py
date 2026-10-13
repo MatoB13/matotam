@@ -5,9 +5,16 @@ sys.path.append(site.getusersitepackages()); importlib.invalidate_caches()
 from Crypto.Hash import keccak as _k
 def keccak(b):
     h = _k.new(digest_bits=256); h.update(b); return h.digest()
+import time
 def rpc(m, p):
-    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=90).read())
-    return r.get("result", r.get("error"))
+    for attempt in range(6):
+        try:
+            time.sleep(0.35)
+            r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=90).read())
+            return r.get("result", r.get("error"))
+        except Exception as e:
+            time.sleep(3 * (attempt + 1))
+    return {"message": "rpc failed"}
 def api(payload):
     req = urllib.request.Request("https://back.dolz.io/api.php", data=json.dumps(payload).encode(), headers={"content-type": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://dolz.io"})
     return json.loads(urllib.request.urlopen(req, timeout=30).read())
@@ -21,7 +28,7 @@ def sim(frm, data, t):
     return "OK " + res[:80]
 for sel in ["1004a9ee", "2899a783", "6f0ed2a3", "8e304e9c", "926cd4ca", "a9fc979e", "d6f2c57f", "f53a261d"]:
     for label, args in [("()", ""), ("(1)", w(1)), ("(1,10e6)", w(1) + w(10_000_000)), ("(1,10)", w(1) + w(10)), ("(hot)", w(int(HOT, 16)))]:
-        for t in (START + 5, START + 700):
+        for t in (START + 700,):
             print(sel, label, "t+%d" % (t - START), sim(HOT, "0x" + sel + args, t))
 print("before start:", sim(HOT, "0xf53a261d" + w(1), START - 60))
 wl = api({"command": "getWhitelistForCard", "card": "g0207"})
