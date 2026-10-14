@@ -338,6 +338,7 @@ export type PnlGroup = {
   name: string;
   trades: number;
   buys: number;
+  mints: number;
   sells: number;
   spent: number;
   proceeds: number;
@@ -373,6 +374,7 @@ export async function getPortfolio(): Promise<Portfolio> {
   const { rows } = await pool.query("SELECT * FROM wl_pnl");
   const groups: PnlGroup[] = rows.map((r) => {
     const buys = toNumber(r.buys);
+    const mints = toNumber(r.mints);
     const sells = toNumber(r.sells);
     const proceeds = toNumber(r.proceeds);
     const realized = toNumber(r.realized);
@@ -387,6 +389,7 @@ export async function getPortfolio(): Promise<Portfolio> {
       name: r.name,
       trades: buys + sells,
       buys,
+      mints,
       sells,
       spent: toNumber(r.spent),
       proceeds,

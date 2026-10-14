@@ -111,6 +111,7 @@ function PnlTable({ groups, kind }: { groups: PnlGroup[]; kind: "nft" | "ft" }) 
               <th>{kind === "nft" ? "Kolekcia" : "Token"}</th>
               <th className={styles.num}>Obchody</th>
               <th className={styles.num}>Nákupy / predaje</th>
+              <th className={styles.num}>Mint</th>
               <th className={styles.num}>Investované</th>
               <th className={styles.num}>Z predajov</th>
               <th className={styles.num}>Realizovaný PNL</th>
@@ -131,6 +132,7 @@ function PnlTable({ groups, kind }: { groups: PnlGroup[]; kind: "nft" | "ft" }) 
                 </td>
                 <td className={styles.num}>{g.trades}</td>
                 <td className={styles.num}>{g.buys} / {g.sells}</td>
+                <td className={styles.num}>{g.mints || "—"}</td>
                 <td className={styles.num}>{g.spent ? formatAda(g.spent) : "—"}</td>
                 <td className={styles.num}>{g.proceeds ? formatAda(g.proceeds) : "—"}</td>
                 <td className={`${styles.num} ${pnlClass(g.realized) ?? ""}`}>{g.sells ? formatAda(g.realized, true) : "—"}</td>
