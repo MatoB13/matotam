@@ -6,9 +6,21 @@ import { Pool } from "pg";
 const globalForPg = globalThis as unknown as { walletLedgerPool?: Pool };
 
 function getPool(): Pool {
-  const connectionString = process.env.WALLET_LEDGER_DATABASE_URL;
-  if (!connectionString) throw new Error("Missing WALLET_LEDGER_DATABASE_URL");
+  const raw = process.env.WALLET_LEDGER_DATABASE_URL;
+  if (!raw) throw new Error("Missing WALLET_LEDGER_DATABASE_URL");
+  const connectionString = raw.trim().replace(/^["']+|["']+$/g, "");
   if (!globalForPg.walletLedgerPool) {
+    try {
+      new URL(connectionString);
+    } catch {
+      // Never echo the value (it holds the password) - only its shape.
+      const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(connectionString)?.[0] ?? "none";
+      throw new Error(
+        `WALLET_LEDGER_DATABASE_URL is not a valid URL (length ${connectionString.length}, scheme ${scheme}, ` +
+          `has "@" ${connectionString.includes("@")}, has whitespace ${/\s/.test(connectionString)}, ` +
+          `all asterisks ${/^\*+$/.test(connectionString)})`,
+      );
+    }
     globalForPg.walletLedgerPool = new Pool({
       connectionString,
       max: 3,
