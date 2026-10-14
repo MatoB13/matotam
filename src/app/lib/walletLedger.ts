@@ -330,3 +330,99 @@ export async function getWalletDetail(
     })),
   };
 }
+
+export type PnlGroup = {
+  key: string;
+  kind: "nft" | "ft";
+  policy: string;
+  name: string;
+  trades: number;
+  buys: number;
+  sells: number;
+  spent: number;
+  proceeds: number;
+  realized: number;
+  roi: number | null;
+  winRate: number | null;
+  wins: number;
+  losses: number;
+  best: number | null;
+  worst: number | null;
+  avgHoldDays: number | null;
+  heldQty: number;
+  heldCost: number;
+  firstTime: number | null;
+  lastTime: number | null;
+};
+
+export type PortfolioTotals = {
+  realized: number;
+  realizedNft: number;
+  realizedFt: number;
+  spent: number;
+  proceeds: number;
+  heldCost: number;
+  winRate: number | null;
+  groups: number;
+};
+
+export type Portfolio = { nft: PnlGroup[]; ft: PnlGroup[]; totals: PortfolioTotals; ready: boolean };
+
+export async function getPortfolio(): Promise<Portfolio> {
+  const pool = getPool();
+  const { rows } = await pool.query("SELECT * FROM wl_pnl");
+  const groups: PnlGroup[] = rows.map((r) => {
+    const buys = toNumber(r.buys);
+    const sells = toNumber(r.sells);
+    const proceeds = toNumber(r.proceeds);
+    const realized = toNumber(r.realized);
+    const costOfSold = proceeds - realized;
+    const wins = toNumber(r.wins);
+    const losses = toNumber(r.losses);
+    const scale = 10 ** toNumber(r.decimals);
+    return {
+      key: r.group_key,
+      kind: r.kind,
+      policy: r.policy,
+      name: r.name,
+      trades: buys + sells,
+      buys,
+      sells,
+      spent: toNumber(r.spent),
+      proceeds,
+      realized,
+      roi: sells > 0 && costOfSold > 0.5 ? realized / costOfSold : null,
+      winRate: wins + losses > 0 ? wins / (wins + losses) : null,
+      wins,
+      losses,
+      best: r.best === null ? null : toNumber(r.best),
+      worst: r.worst === null ? null : toNumber(r.worst),
+      avgHoldDays: r.avg_hold_days === null ? null : toNumber(r.avg_hold_days),
+      heldQty: r.kind === "ft" ? toNumber(r.held_qty) / scale : toNumber(r.held_qty),
+      heldCost: toNumber(r.held_cost),
+      firstTime: r.first_time === null ? null : toNumber(r.first_time),
+      lastTime: r.last_time === null ? null : toNumber(r.last_time),
+    };
+  });
+  const byTrades = (a: PnlGroup, b: PnlGroup) => b.trades - a.trades || b.spent - a.spent;
+  const nft = groups.filter((g) => g.kind === "nft").sort(byTrades);
+  const ft = groups.filter((g) => g.kind === "ft").sort(byTrades);
+  const sum = (list: PnlGroup[], f: (g: PnlGroup) => number) => list.reduce((acc, g) => acc + f(g), 0);
+  const wins = sum(groups, (g) => g.wins);
+  const losses = sum(groups, (g) => g.losses);
+  return {
+    nft,
+    ft,
+    ready: groups.length > 0,
+    totals: {
+      realized: sum(groups, (g) => g.realized),
+      realizedNft: sum(nft, (g) => g.realized),
+      realizedFt: sum(ft, (g) => g.realized),
+      spent: sum(groups, (g) => g.spent),
+      proceeds: sum(groups, (g) => g.proceeds),
+      heldCost: sum(groups, (g) => g.heldCost),
+      winRate: wins + losses > 0 ? wins / (wins + losses) : null,
+      groups: groups.length,
+    },
+  };
+}

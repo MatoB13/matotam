@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "../dolz/dolz.module.css";
-import type { LedgerRow, WalletDetail, WalletSummary } from "@/app/lib/walletLedger";
+import type { LedgerRow, PnlGroup, Portfolio, WalletDetail, WalletSummary } from "@/app/lib/walletLedger";
 
 const KIND_LABELS: Record<string, string> = {
   buy: "Nákup",
@@ -52,6 +52,101 @@ function MetricCard({ label, value, detail, className }: { label: string; value:
       <strong className={className}>{value}</strong>
       {detail ? <small>{detail}</small> : null}
     </article>
+  );
+}
+
+type SortKey = "trades" | "realized" | "spent" | "roi" | "held" | "last";
+const SORTS: { id: SortKey; label: string }[] = [
+  { id: "trades", label: "Počet obchodov" },
+  { id: "realized", label: "Realizovaný PNL" },
+  { id: "spent", label: "Investované" },
+  { id: "roi", label: "ROI" },
+  { id: "held", label: "V držbe (cena)" },
+  { id: "last", label: "Posledný obchod" },
+];
+const sortValue = (g: PnlGroup, key: SortKey): number => {
+  switch (key) {
+    case "trades": return g.trades;
+    case "realized": return g.realized;
+    case "spent": return g.spent;
+    case "roi": return g.roi ?? -Infinity;
+    case "held": return g.heldCost;
+    case "last": return g.lastTime ?? 0;
+  }
+};
+const formatPct = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(0)} %`);
+
+function PnlTable({ groups, kind }: { groups: PnlGroup[]; kind: "nft" | "ft" }) {
+  const [sort, setSort] = useState<SortKey>("trades");
+  const [query, setQuery] = useState("");
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return groups
+      .filter((g) => !needle || g.name.toLowerCase().includes(needle) || g.policy.startsWith(needle))
+      .sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
+  }, [groups, sort, query]);
+  return (
+    <section className={styles.panelFull}>
+      <div className={styles.panelTitleRow}>
+        <h2>{kind === "nft" ? "NFT kolekcie" : "Fungible tokeny"}</h2>
+        <span>{rows.length} z {groups.length} · zoradené podľa: {SORTS.find((x) => x.id === sort)?.label}</span>
+      </div>
+      <div className={styles.subTabBar} style={{ marginBottom: 12, alignItems: "center" }}>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Hľadať názov / policy…"
+          style={{ padding: "8px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.06)", color: "inherit" }}
+        />
+        {SORTS.map((x) => (
+          <button key={x.id} type="button" className={sort === x.id ? styles.tabActive : styles.tab} onClick={() => setSort(x.id)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <div className={`${styles.tableWrap} ${styles.scrollBox}`} style={{ maxHeight: 640 }}>
+        <table>
+          <thead>
+            <tr>
+              <th>{kind === "nft" ? "Kolekcia" : "Token"}</th>
+              <th className={styles.num}>Obchody</th>
+              <th className={styles.num}>Nákupy / predaje</th>
+              <th className={styles.num}>Investované</th>
+              <th className={styles.num}>Z predajov</th>
+              <th className={styles.num}>Realizovaný PNL</th>
+              <th className={styles.num}>ROI</th>
+              <th className={styles.num}>Úspešnosť</th>
+              <th className={styles.num}>Ø držba</th>
+              <th className={styles.num}>V držbe</th>
+              <th>Posledný</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((g) => (
+              <tr key={g.key}>
+                <td>
+                  <a href={`https://cardanoscan.io/tokenPolicy/${g.policy}`} target="_blank" rel="noreferrer" className={styles.txLink}>
+                    {g.name}
+                  </a>
+                </td>
+                <td className={styles.num}>{g.trades}</td>
+                <td className={styles.num}>{g.buys} / {g.sells}</td>
+                <td className={styles.num}>{g.spent ? formatAda(g.spent) : "—"}</td>
+                <td className={styles.num}>{g.proceeds ? formatAda(g.proceeds) : "—"}</td>
+                <td className={`${styles.num} ${pnlClass(g.realized) ?? ""}`}>{g.sells ? formatAda(g.realized, true) : "—"}</td>
+                <td className={`${styles.num} ${pnlClass(g.roi ?? 0) ?? ""}`}>{formatPct(g.roi)}</td>
+                <td className={styles.num}>{g.winRate === null ? "—" : `${formatPct(g.winRate)} (${g.wins}/${g.wins + g.losses})`}</td>
+                <td className={styles.num}>{g.avgHoldDays === null ? "—" : `${g.avgHoldDays.toFixed(0)} d`}</td>
+                <td className={styles.num}>
+                  {g.heldQty > 0 ? `${kind === "ft" ? formatInt(Math.round(g.heldQty)) : g.heldQty} · ${formatAda(g.heldCost)}` : "—"}
+                </td>
+                <td>{formatDate(g.lastTime)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -161,6 +256,8 @@ export default function WalletsDashboard({ token }: { token: string }) {
   const [extraRows, setExtraRows] = useState<LedgerRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [top, setTop] = useState<"wallets" | "nft" | "ft">("wallets");
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
 
   const authed = useCallback(async (url: string) => {
     const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`, { cache: "no-store" });
@@ -180,6 +277,19 @@ export default function WalletsDashboard({ token }: { token: string }) {
       cancelled = true;
     };
   }, [authed]);
+
+  useEffect(() => {
+    if (top === "wallets" || portfolio) return;
+    let cancelled = false;
+    setLoading(true);
+    authed("/api/wallets/portfolio")
+      .then((data) => !cancelled && setPortfolio(data as Portfolio))
+      .catch((e: Error) => !cancelled && setError(e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [top, portfolio, authed]);
 
   const loadDetail = useCallback(
     async (stake: string, nextKind: string) => {
@@ -257,13 +367,38 @@ export default function WalletsDashboard({ token }: { token: string }) {
 
       {!selected && wallets ? (
         <>
+          <nav className={styles.tabBar} role="tablist" aria-label="Sekcie">
+            {([["wallets", "Peňaženky"], ["nft", "NFT"], ["ft", "FT"]] as const).map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={top === id} className={top === id ? styles.tabActive : styles.tab} onClick={() => setTop(id)}>
+                {label}
+              </button>
+            ))}
+          </nav>
           <section className={styles.metricsGrid}>
-            <MetricCard label="Peňaženky" value={String(totals.count)} />
-            <MetricCard label="Transakcie" value={formatInt(totals.txs)} />
+            <MetricCard label="Peňaženky" value={String(totals.count)} detail={`${formatInt(totals.txs)} transakcií`} />
             <MetricCard label="NFT v držbe" value={formatInt(totals.nfts)} detail={`${formatInt(totals.fts)} fungible tokenov`} />
             <MetricCard label="ADA spolu" value={formatAda(totals.ada)} />
+            <MetricCard
+              label="Realizovaný PNL"
+              value={portfolio ? formatAda(portfolio.totals.realized, true) : "—"}
+              className={portfolio ? pnlClass(portfolio.totals.realized) : undefined}
+              detail={portfolio ? `NFT ${formatAda(portfolio.totals.realizedNft, true)} · FT ${formatAda(portfolio.totals.realizedFt, true)}` : "otvor záložku NFT alebo FT"}
+            />
           </section>
-          <section className={styles.panelFull}>
+          {top !== "wallets" && portfolio ? (
+            <section className={styles.metricsGrid}>
+              <MetricCard label="Investované (nákupy)" value={formatAda(portfolio.totals.spent)} />
+              <MetricCard label="Tržby z predajov" value={formatAda(portfolio.totals.proceeds)} />
+              <MetricCard label="Úspešnosť predajov" value={formatPct(portfolio.totals.winRate)} detail="predaje v pluse" />
+              <MetricCard label="V držbe (nákupná cena)" value={formatAda(portfolio.totals.heldCost)} />
+            </section>
+          ) : null}
+          {top !== "wallets" && portfolio && !portfolio.ready ? (
+            <section className={styles.loadingBox}>PNL sa ešte počíta, indexer dopĺňa históriu. Skús o pár minút.</section>
+          ) : null}
+          {top === "nft" && portfolio?.ready ? <PnlTable groups={portfolio.nft} kind="nft" /> : null}
+          {top === "ft" && portfolio?.ready ? <PnlTable groups={portfolio.ft} kind="ft" /> : null}
+          {top === "wallets" ? <section className={styles.panelFull}>
             <div className={styles.tableWrap}>
               <table>
                 <thead>
@@ -301,7 +436,7 @@ export default function WalletsDashboard({ token }: { token: string }) {
                 </tbody>
               </table>
             </div>
-          </section>
+          </section> : null}
         </>
       ) : null}
 
