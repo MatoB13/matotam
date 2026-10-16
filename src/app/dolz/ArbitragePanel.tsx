@@ -113,6 +113,11 @@ export default function ArbitragePanel({ token }: { token: string }) {
         </button>
       </div>
       {notice ? <p className={notice.ok ? styles.goodText : styles.badText}>{notice.text}</p> : null}
+      {data?.unverified?.length ? (
+        <p className={styles.mutedText}>
+          Neoverené teraz (preťažený uzol, skús Obnoviť o 5 min): {data.unverified.join(", ")}
+        </p>
+      ) : null}
 
       <div className={styles.tableWrap}>
         <table className={styles.sellTable}>

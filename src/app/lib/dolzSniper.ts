@@ -439,6 +439,8 @@ export type DolzArbitrage = {
   rarity: string;
   updatedAt: string;
   cards: number;
+  /** Card numbers whose owners could not be checked now (left out of the rows). */
+  unverified?: string[];
   rows: { card: string; name: string | null; rarity: string | null; listings: number; cheapest: DolzArbitrageListing; second: DolzArbitrageListing; gap_usd: number; gap_pct: number | null }[];
 };
 
