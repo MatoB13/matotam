@@ -9,7 +9,7 @@ import OfferPanel from "./OfferPanel";
 import QuickBuy from "./QuickBuy";
 import SellPanel from "./SellPanel";
 import { DOLZ_CARD_CATALOG } from "@/app/lib/dolzCardCatalog";
-import type { DolzSniperCatalogCard, DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
+import type { DolzListingAlerts, DolzSniperCatalogCard, DolzSniperConfig, DolzSniperRule, DolzSniperStatus } from "@/app/lib/dolzSniper";
 
 const RARITIES = ["Limited", "Rare", "Epic", "Legendary"] as const;
 const MAX_RULES = 20;
@@ -56,6 +56,40 @@ type RuleDraft = { id: number; enabled: boolean; card: string; min_rarity: strin
 type ConfigDraft = { enabled: boolean; dry_run: boolean; daily_budget_usd: string; max_buys_per_day: string; rules: RuleDraft[] };
 
 let nextRuleId = 1;
+
+/** Listings ending within a week (or just ended), so an accidentally short listing gets renewed in time. */
+function ListingExpiry({ alerts, wallet }: { alerts: DolzListingAlerts | null; wallet: string | null }) {
+  if (!alerts) return null;
+  // Counted from the check itself (refreshed every 10 minutes), which keeps rendering pure.
+  const now = Date.parse(alerts.updatedAt) / 1000;
+  const inDays = (seconds: number) => {
+    const days = Math.round(Math.abs(seconds) / 86400);
+    if (days === 0) {
+      const hours = Math.max(1, Math.round(Math.abs(seconds) / 3600));
+      return `${hours} ${hours === 1 ? "hodinu" : hours < 5 ? "hodiny" : "hodín"}`;
+    }
+    return `${days} ${days === 1 ? "deň" : days < 5 ? "dni" : "dní"}`;
+  };
+  const label = (item: DolzListingAlerts["alerts"][number]) =>
+    [item.name ?? `#${item.token_id}`, item.rarity, item.serial != null ? `#${item.serial}` : null].filter(Boolean).join(" ");
+  if (!alerts.alerts.length) {
+    return <p className={styles.mutedText}>Momentálne nekončí vystavenie žiadnej karte (kontrola na {alerts.days} dní dopredu).</p>;
+  }
+  return (
+    <ul className={styles.ruleList}>
+      {alerts.alerts.map((item) => {
+        const left = item.expiration - now;
+        const where = wallet && item.wallet === wallet.toLowerCase() ? "hot wallet" : `${item.wallet.slice(0, 6)}…${item.wallet.slice(-4)}`;
+        return (
+          <li key={`${item.wallet}-${item.token_id}`} className={styles.badText}>
+            {left > 0 ? `Karte ${label(item)} končí vystavenie o ${inDays(left)}` : `Karte ${label(item)} skončilo vystavenie pred ${inDays(left)}`}
+            {` (${new Date(item.expiration * 1000).toLocaleString("sk-SK")}, ${item.price_usd != null ? `$${item.price_usd.toFixed(2)}` : "—"}, ${where})`}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 type SniperView = "settings" | "purchases" | "sell" | "auction" | "drop";
 const VIEWS: { id: SniperView; label: string }[] = [
@@ -288,6 +322,7 @@ export default function SniperTab({ token }: { token: string }) {
             <small>{status?.balances.pol !== undefined ? `${status.balances.pol.toFixed(2)} POL na gas` : "USDC a POL"}</small>
           </article>
         </div>
+        <ListingExpiry alerts={status?.listingAlerts ?? null} wallet={status?.wallet ?? null} />
         {savedRules.length ? (
           <ul className={styles.ruleList}>
             {savedRules.map((rule, index) => (

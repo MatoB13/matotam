@@ -74,6 +74,23 @@ export type DolzSniperStatus = {
   purchases: DolzSniperPurchase[];
   events: DolzSniperEvent[];
   catalog?: DolzSniperCatalogCard[];
+  /** Our live listings ending within `days` (or ended in the last `days`), refreshed with the collection. */
+  listingAlerts?: DolzListingAlerts | null;
+};
+
+export type DolzListingAlerts = {
+  updatedAt: string;
+  days: number;
+  alerts: {
+    token_id: string;
+    wallet: string;
+    expiration: number;
+    price_usd: number | null;
+    name: string | null;
+    card: string | null;
+    rarity: string | null;
+    serial: number | null;
+  }[];
 };
 
 /** Public URL of the sniper service; DOLZ_SNIPER_URL overrides it. */
