@@ -12,7 +12,7 @@ def api(payload):
     except Exception as e:
         return repr(e)
 def rpc(m, p):
-    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=60).read()))
+    r = json.loads(urllib.request.urlopen(urllib.request.Request("https://polygon.gateway.tenderly.co", data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(), headers={"content-type": "application/json", "user-agent": "x"}), timeout=60).read())
     return r.get("result", r.get("error"))
 counts = collections.Counter()
 for tid in range(105902, 106502, 25):
