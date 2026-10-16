@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
+import ArbitragePanel from "./ArbitragePanel";
 import AuctionPanel from "./AuctionPanel";
 import DropPanel from "./DropPanel";
 import RevealPanel from "./RevealPanel";
@@ -92,11 +93,12 @@ function ListingExpiry({ alerts, wallet }: { alerts: DolzListingAlerts | null; w
   );
 }
 
-type SniperView = "settings" | "purchases" | "sell" | "auction" | "drop" | "reveal";
+type SniperView = "settings" | "purchases" | "sell" | "arbitrage" | "auction" | "drop" | "reveal";
 const VIEWS: { id: SniperView; label: string }[] = [
   { id: "settings", label: "Nastavenia" },
   { id: "purchases", label: "Nákupy a pokusy" },
   { id: "sell", label: "Predaj" },
+  { id: "arbitrage", label: "Arbitráž" },
   { id: "auction", label: "Aukcia" },
   { id: "drop", label: "Drop" },
   { id: "reveal", label: "Odhalenie" },
@@ -511,6 +513,7 @@ export default function SniperTab({ token }: { token: string }) {
       ) : null}
 
       {view === "sell" ? <SellPanel token={token} /> : null}
+      {view === "arbitrage" ? <ArbitragePanel token={token} /> : null}
       {view === "auction" ? <AuctionPanel token={token} /> : null}
       {view === "drop" ? <DropPanel token={token} /> : null}
       {view === "reveal" ? <RevealPanel token={token} /> : null}

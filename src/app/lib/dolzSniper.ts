@@ -432,6 +432,21 @@ export async function saveSniperDrop(token: SniperAuth, config: unknown): Promis
   return (await callSniper<{ config: DolzDropConfig }>("/drop", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
 }
 
+export type DolzArbitrageListing = { token_id: string; price_usd: number; serial: number | null; tier: string | null };
+
+/** Per card number: the cheapest and second cheapest live listing of one rarity, biggest gap (in %) first. */
+export type DolzArbitrage = {
+  rarity: string;
+  updatedAt: string;
+  cards: number;
+  rows: { card: string; name: string | null; rarity: string | null; listings: number; cheapest: DolzArbitrageListing; second: DolzArbitrageListing; gap_usd: number; gap_pct: number | null }[];
+};
+
+export async function getSniperArbitrage(token: SniperAuth, rarity: string, top: number): Promise<DolzArbitrage> {
+  const query = `?rarity=${encodeURIComponent(rarity)}&top=${Math.max(1, Math.min(100, Math.round(top) || 20))}`;
+  return (await callSniper<{ arbitrage: DolzArbitrage }>(`/arbitrage${query}`, token, undefined, 90_000)).arbitrage;
+}
+
 /** Reveal overview: unrevealed card numbers the sniper watches (known cards each) and the latest reveals. */
 export type DolzRevealStatus = {
   watching: Record<string, number>;
