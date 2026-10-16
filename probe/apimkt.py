@@ -3,8 +3,11 @@ import urllib.request, json, base64, time
 NFT = "0xd27029e4ebc3c4c55fcfadddc54fa0b911829afc"; HOT = "0x115ec4f0cb8fc4515fb9e172df97da5d463dd6f6"
 def api(p):
     t = time.time()
-    r = urllib.request.urlopen(urllib.request.Request("https://back.dolz.io/apiMarket.php", data=json.dumps(p).encode(), headers={"content-type": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://dolz.io"}), timeout=30)
-    return r.status, round(time.time() - t, 2), r.read().decode("utf-8", "replace")
+    try:
+        r = urllib.request.urlopen(urllib.request.Request("https://back.dolz.io/apiMarket.php", data=json.dumps(p).encode(), headers={"content-type": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://dolz.io"}), timeout=30)
+        return r.status, round(time.time() - t, 2), r.read().decode("utf-8", "replace")
+    except Exception as e:
+        return getattr(e, "code", 0), round(time.time() - t, 2), (e.read().decode("utf-8", "replace") if hasattr(e, "read") else repr(e))
 for nid in ("106215", "106219", "106017"):
     st, dt, b = api({"command": "getNFTInfos", "contractAddress": NFT, "nftId": nid}); print("getNFTInfos", nid, st, dt, len(b), b[:2500], "\n")
 attrs = base64.b64encode(json.dumps({"Card Number": ["g0207"]}).encode()).decode()
