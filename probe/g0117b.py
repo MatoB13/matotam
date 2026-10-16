@@ -19,27 +19,31 @@ def listed(t):
         return t if len(d) >= 192 and int.from_bytes(d[96:128], "big") else None
     except Exception:
         return None
-with ThreadPoolExecutor(12) as pool:
-    ids = [t for t in pool.map(listed, range(49060, 49700)) if t]
-print("listed g0117 tokens:", len(ids))
-latest = int(rpc("eth_blockNumber", []), 16)
+ids = [49652, 49529, 49695, 49694, 49693, 49692, 49450, 49413, 49690, 49689, 49688, 49687, 49075, 49166, 49291, 49302]
+T = URLS["tenderly"]
+latest = int(rpc("eth_blockNumber", [], T), 16)
 topic3 = ["0x" + hex(t)[2:].rjust(64, "0") for t in ids]
-first = {}
-for lo in range(93_000_000, latest + 1, 200_000):
-    hi = min(latest, lo + 199_999)
-    try:
-        logs = rpc("eth_getLogs", [{"address": LM, "fromBlock": hex(lo), "toBlock": hex(hi), "topics": [[TL, TU], None, "0x" + NFT.rjust(64, "0"), topic3]}])
-    except Exception as e:
-        print(lo, "ERR", e); continue
+events = {}
+for lo in range(90_000_000, latest + 1, 500_000):
+    hi = min(latest, lo + 499_999)
+    for attempt in range(4):
+        try:
+            logs = rpc("eth_getLogs", [{"address": LM, "fromBlock": hex(lo), "toBlock": hex(hi), "topics": [[TL, TU, TC], None, "0x" + NFT.rjust(64, "0"), topic3]}], T)
+            break
+        except Exception as e:
+            logs = None; time.sleep(2 + attempt * 2)
+    if logs is None:
+        print(lo, "FAILED"); continue
     for l in logs:
-        t = int(l["topics"][3], 16); b = int(l["blockNumber"], 16)
-        first.setdefault(t, b)
-blocks = sorted(first.values())
-print("tokens with a Listed/Updated event since 93.0M:", len(first), "of", len(ids))
-print("listed before 94.6M:", sum(b < 94_600_000 for b in blocks), " earliest", blocks[:3], " missing tokens:", [t for t in ids if t not in first][:10])
+        t = int(l["topics"][3], 16)
+        kind = {TL: "L", TU: "U", TC: "C"}[l["topics"][0]]
+        events.setdefault(t, []).append((int(l["blockNumber"], 16), kind, int(l["data"][2:66], 16)))
+    time.sleep(0.3)
+for t in ids:
+    print(t, events.get(t))
 # truncation test on the first USDC days, all cards
 lo, hi = 94_600_000, 94_799_999
-for name, url in URLS.items():
+for name, url in []:
     try:
         big = len(rpc("eth_getLogs", [{"address": LM, "fromBlock": hex(lo), "toBlock": hex(hi), "topics": [[TL, TU, TC], None, "0x" + NFT.rjust(64, "0")]}], url))
     except Exception as e:
