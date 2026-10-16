@@ -11,6 +11,8 @@ import {
   getSniperShield,
   getSniperDrop,
   saveSniperDrop,
+  getSniperReveal,
+  saveSniperReveal,
   saveSniperConfig,
   sniperBuyNow,
   sniperOffer,
@@ -32,6 +34,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, auction: await getSniperAuction(token) }, { headers });
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." }, { status: 502, headers });
+    }
+  }
+  if (request.nextUrl.searchParams.get("view") === "reveal") {
+    try {
+      return NextResponse.json({ ok: true, reveal: await getSniperReveal(token) }, { headers });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Odhalenie sa nepodarilo načítať." }, { status: 502, headers });
     }
   }
   if (request.nextUrl.searchParams.get("view") === "drop") {
@@ -73,6 +82,9 @@ export async function POST(request: NextRequest) {
     if (action === "auction_claim") {
       const body = (await request.json()) as { contract?: unknown };
       return NextResponse.json({ ok: true, claim: await claimSniperAuction(token, body.contract) }, { headers });
+    }
+    if (action === "reveal") {
+      return NextResponse.json({ ok: true, config: await saveSniperReveal(token, await request.json()) }, { headers });
     }
     if (action === "drop") {
       return NextResponse.json({ ok: true, config: await saveSniperDrop(token, await request.json()) }, { headers });

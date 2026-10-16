@@ -5,6 +5,7 @@ import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import AuctionPanel from "./AuctionPanel";
 import DropPanel from "./DropPanel";
+import RevealPanel from "./RevealPanel";
 import OfferPanel from "./OfferPanel";
 import QuickBuy from "./QuickBuy";
 import SellPanel from "./SellPanel";
@@ -91,13 +92,14 @@ function ListingExpiry({ alerts, wallet }: { alerts: DolzListingAlerts | null; w
   );
 }
 
-type SniperView = "settings" | "purchases" | "sell" | "auction" | "drop";
+type SniperView = "settings" | "purchases" | "sell" | "auction" | "drop" | "reveal";
 const VIEWS: { id: SniperView; label: string }[] = [
   { id: "settings", label: "Nastavenia" },
   { id: "purchases", label: "Nákupy a pokusy" },
   { id: "sell", label: "Predaj" },
   { id: "auction", label: "Aukcia" },
   { id: "drop", label: "Drop" },
+  { id: "reveal", label: "Odhalenie" },
 ];
 
 type CatalogCard = { card: string; name: string; season: string | null; tiers: string[] };
@@ -511,6 +513,7 @@ export default function SniperTab({ token }: { token: string }) {
       {view === "sell" ? <SellPanel token={token} /> : null}
       {view === "auction" ? <AuctionPanel token={token} /> : null}
       {view === "drop" ? <DropPanel token={token} /> : null}
+      {view === "reveal" ? <RevealPanel token={token} /> : null}
 
       {view === "purchases" ? <QuickBuy token={token} onBought={() => void load(false)} /> : null}
       {view === "purchases" ? <OfferPanel token={token} /> : null}
