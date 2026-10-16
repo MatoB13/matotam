@@ -4,6 +4,11 @@ const path = require("path");
 const nextConfig = {
   transpilePackages: ["lucid-cardano"],
 
+  // Same value in the page bundle and in /api/version, so an open page can tell a newer deploy is live.
+  env: {
+    APP_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || String(Date.now()),
+  },
+
   webpack: (config) => {
     config.experiments = {
       ...(config.experiments || {}),

@@ -6,6 +6,7 @@ import type { DolzChannel, DolzEvent, DolzHolding, DolzReport } from "@/app/lib/
 import MissingCardsTab from "./MissingCardsTab";
 import ActionPasswordField from "./ActionPasswordField";
 import MetaMaskTab from "./MetaMaskTab";
+import NewVersionBar from "./NewVersionBar";
 import SniperTab from "./SniperTab";
 
 type ApiResponse = { ok: boolean; data?: DolzReport; error?: string };
@@ -559,6 +560,8 @@ export default function DolzDashboard({ token }: { token: string }) {
           </p>
         </div>
       </header>
+
+      <NewVersionBar />
 
       <nav className={styles.tabBar} role="tablist" aria-label="Sekcie">
         <button type="button" role="tab" aria-selected={tab === "portfolio"} className={tab === "portfolio" ? styles.tabActive : styles.tab} onClick={() => setTab("portfolio")}>
