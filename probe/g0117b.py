@@ -37,7 +37,7 @@ for lo in range(90_000_000, latest + 1, 500_000):
     for l in logs:
         t = int(l["topics"][3], 16)
         kind = {TL: "L", TU: "U", TC: "C"}[l["topics"][0]]
-        events.setdefault(t, []).append((int(l["blockNumber"], 16), kind, int(l["data"][2:66], 16)))
+        events.setdefault(t, []).append((int(l["blockNumber"], 16), kind, int(l["data"][2:66] or "0", 16)))
     time.sleep(0.3)
 for t in ids:
     print(t, events.get(t))
