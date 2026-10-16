@@ -432,32 +432,16 @@ export async function saveSniperDrop(token: SniperAuth, config: unknown): Promis
   return (await callSniper<{ config: DolzDropConfig }>("/drop", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
 }
 
-export type DolzRevealConfig = {
-  enabled: boolean;
-  card: string;
-  limits: Partial<Record<"rare" | "epic" | "legendary", number>>;
-  hours: number;
-  priority_gwei: number;
-  until?: number;
-};
-
-/** The reveal watch: listed, still unrevealed cards of one card number, bought when they reveal within a limit. */
+/** Reveal overview: unrevealed card numbers the sniper watches (known cards each) and the latest reveals. */
 export type DolzRevealStatus = {
-  config: DolzRevealConfig;
-  active?: boolean;
-  candidates?: number;
-  candidate_ids?: string[];
-  prices?: number[];
-  until?: number;
-  updated?: number;
+  watching: Record<string, number>;
+  recent: { card: string; at: number; cards: number; listed: number; rarities: Record<string, number> }[];
+  updated?: number | null;
+  poll_seconds?: number;
 };
 
 export async function getSniperReveal(token: SniperAuth): Promise<DolzRevealStatus> {
   return (await callSniper<{ reveal: DolzRevealStatus }>("/reveal", token, undefined, 20_000)).reveal;
-}
-
-export async function saveSniperReveal(token: SniperAuth, config: unknown): Promise<DolzRevealConfig> {
-  return (await callSniper<{ config: DolzRevealConfig }>("/reveal", token, { method: "POST", body: JSON.stringify(config) }, 30_000)).config;
 }
 
 export type DolzSniperCardMeta = { name: string | null; card: string | null; tier: string | null; serial: string | number | null; rarity: string | null };

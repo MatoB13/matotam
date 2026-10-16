@@ -12,7 +12,6 @@ import {
   getSniperDrop,
   saveSniperDrop,
   getSniperReveal,
-  saveSniperReveal,
   saveSniperConfig,
   sniperBuyNow,
   sniperOffer,
@@ -82,9 +81,6 @@ export async function POST(request: NextRequest) {
     if (action === "auction_claim") {
       const body = (await request.json()) as { contract?: unknown };
       return NextResponse.json({ ok: true, claim: await claimSniperAuction(token, body.contract) }, { headers });
-    }
-    if (action === "reveal") {
-      return NextResponse.json({ ok: true, config: await saveSniperReveal(token, await request.json()) }, { headers });
     }
     if (action === "drop") {
       return NextResponse.json({ ok: true, config: await saveSniperDrop(token, await request.json()) }, { headers });
