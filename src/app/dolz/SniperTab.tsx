@@ -334,7 +334,7 @@ export default function SniperTab({ token }: { token: string }) {
         ) : null}
         <div className={styles.formActions}>
           <p className={styles.chartNote}>
-            Sniper kupuje nové ponuky hneď, ako sa objavia. Ponuky z poslednej hodiny prejde ešte raz pri štarte, po uložení nastavení a na toto tlačidlo.
+            Sniper kupuje nové ponuky hneď, ako sa objavia. Po uložení nastavení a na toto tlačidlo prejde všetky práve vystavené karty (bez ohľadu na to, kedy boli vystavené), pri štarte ponuky z poslednej hodiny.
           </p>
           <button type="button" className={styles.refreshButton} onClick={() => void rescan()} disabled={scanState === "sending" || availability !== "ok"}>
             {scanState === "sending" ? "Posielam…" : scanState === "sent" ? "Prehľadáva sa ✓" : "Prehľadať trh teraz"}
