@@ -7,4 +7,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: timeout 240 python3 -u probe/g0117.py
+      - run: timeout 170 python3 -u probe/hist.py
