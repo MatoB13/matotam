@@ -20,8 +20,10 @@ function failure(error: unknown, fallback: string, status = 400) {
 export async function GET(request: NextRequest) {
   if (!isDolzAuthorized(request)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers });
   const token = request.nextUrl.searchParams.get("token") ?? "";
+  // `market=0`: skip the market medians (the slow part) so the page can show the cards first.
+  const withMarket = request.nextUrl.searchParams.get("market") !== "0";
   try {
-    const inventory = await getSniperInventory(token);
+    const inventory = await getSniperInventory(token, request.nextUrl.searchParams.get("fresh") === "1");
     // USDC-era sales only: DOLZ-era prices would need the price book, which the sell view does not load.
     // Card and tier come from the sniper, so only sales of other cards may need a (slow) metadata lookup.
     const known = Object.fromEntries(
@@ -36,22 +38,27 @@ export async function GET(request: NextRequest) {
         },
       ]),
     );
-    const market = await Promise.race([
-      buildMarketBook(() => null, [], known).catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
-    ]);
     // Cards the sniper did not buy (moved in from MetaMask, ...): their cost from the cached portfolio report.
     const needCost = inventory.cards.some((card) => card.bought_usd == null);
-    const report = needCost
-      ? await Promise.race([
-          cachedDolzReport(portfolioWallets(inventory.wallet?.toLowerCase() ?? null)).catch(() => null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
-        ])
-      : null;
+    const [market, report, collectionResult] = await Promise.all([
+      withMarket
+        ? Promise.race([
+            buildMarketBook(() => null, [], known).catch(() => null),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+          ])
+        : null,
+      needCost
+        ? Promise.race([
+            cachedDolzReport(portfolioWallets(inventory.wallet?.toLowerCase() ?? null)).catch(() => null),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+          ])
+        : null,
+      getSniperCollection(token).catch(() => null),
+    ]);
     const costs = new Map(
       (report?.holdings ?? []).filter((holding) => holding.token === DOLZ_NFT && holding.costUsd > 0).map((holding) => [holding.id, holding.costUsd]),
     );
-    const collection = (await getSniperCollection(token).catch(() => null))?.collection ?? null;
+    const collection = collectionResult?.collection ?? null;
     const cards = inventory.cards.map((card) => {
       const cost = card.bought_usd == null ? costs.get(card.token_id) : undefined;
       return {

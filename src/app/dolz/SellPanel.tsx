@@ -44,21 +44,41 @@ export default function SellPanel({ token }: { token: string }) {
   const [notes, setNotes] = useState<Record<string, RowNote>>({});
   const [loadedAt, setLoadedAt] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/dolz/sell?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      const json = (await response.json()) as { ok: boolean; inventory?: DolzSellInventory; error?: string };
-      if (!response.ok || !json.ok || !json.inventory) throw new Error(json.error || `HTTP ${response.status}`);
-      setInventory(json.inventory);
-      setLoadedAt(Date.now());
-      setError(null);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať karty.");
-    } finally {
+  /**
+   * Cards first (the sniper answers from its last copy unless `fresh`), then the market medians, which take
+   * longest, fill the Trh column.
+   */
+  const load = useCallback(
+    async (fresh = false) => {
+      setLoading(true);
+      const base = `/api/dolz/sell?token=${encodeURIComponent(token)}`;
+      try {
+        const response = await fetch(`${base}&market=0${fresh ? "&fresh=1" : ""}`, { cache: "no-store" });
+        const json = (await response.json()) as { ok: boolean; inventory?: DolzSellInventory; error?: string };
+        if (!response.ok || !json.ok || !json.inventory) throw new Error(json.error || `HTTP ${response.status}`);
+        setInventory(json.inventory);
+        setLoadedAt(Date.now());
+        setError(null);
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Nepodarilo sa načítať karty.");
+        setLoading(false);
+        return;
+      }
       setLoading(false);
-    }
-  }, [token]);
+      try {
+        const response = await fetch(base, { cache: "no-store" });
+        const json = (await response.json()) as { ok: boolean; inventory?: DolzSellInventory };
+        if (!response.ok || !json.ok || !json.inventory) return;
+        const markets = new Map(json.inventory.cards.map((card) => [card.token_id, card.market]));
+        setInventory((current) =>
+          current ? { ...current, cards: current.cards.map((card) => ({ ...card, market: markets.get(card.token_id) ?? card.market })) } : current,
+        );
+      } catch {
+        // The Trh column stays empty; everything else is shown.
+      }
+    },
+    [token],
+  );
 
   useEffect(() => {
     const first = window.setTimeout(() => void load(), 0);
@@ -104,7 +124,7 @@ export default function SellPanel({ token }: { token: string }) {
         return next;
       });
       setDrafts({});
-      await load();
+      await load(true);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Predaj zlyhal.");
     } finally {
@@ -241,7 +261,7 @@ export default function SellPanel({ token }: { token: string }) {
             Presunúť na {transferTarget.slice(0, 6)}…{transferTarget.slice(-4)}
           </button>
         ) : null}
-        <button type="button" className={styles.refreshButton} onClick={() => void load()} disabled={loading || !!busy}>
+        <button type="button" className={styles.refreshButton} onClick={() => void load(true)} disabled={loading || !!busy}>
           {loading ? "Načítavam…" : "Obnoviť"}
         </button>
       </div>

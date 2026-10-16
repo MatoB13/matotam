@@ -212,13 +212,16 @@ export type DolzSellInventory = {
   cards: DolzSellCard[];
   /** Set when buyer offers could not be read now; the offers shown are from the last successful read. */
   offersStale?: { since: number | null; error: string } | null;
+  /** When the sniper read this copy (unix seconds); null for a fresh read. */
+  cachedAt?: number | null;
 };
 
 export type DolzSellResult = { token_id: string; ok: boolean; tx?: string; action?: string; error?: string };
 
 /** Cards in the sniper's hot wallet with their own market listings. */
-export async function getSniperInventory(token: SniperAuth): Promise<DolzSellInventory> {
-  return (await callSniper<{ inventory: DolzSellInventory }>("/inventory", token, undefined, 60_000)).inventory;
+/** The sniper serves its last copy at once (refreshing it behind); `fresh` waits for a new read from chain. */
+export async function getSniperInventory(token: SniperAuth, fresh = false): Promise<DolzSellInventory> {
+  return (await callSniper<{ inventory: DolzSellInventory }>(fresh ? "/inventory?fresh=1" : "/inventory", token, undefined, 60_000)).inventory;
 }
 
 /** List or reprice cards; the sniper sends one transaction per card and waits for each. */
