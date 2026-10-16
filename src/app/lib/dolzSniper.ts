@@ -438,10 +438,20 @@ export type DolzRevealStatus = {
   recent: { card: string; at: number; cards: number; listed: number; rarities: Record<string, number> }[];
   updated?: number | null;
   poll_seconds?: number;
+  slow_seconds?: number;
+  window?: string;
+  fast?: boolean;
+  window_now?: boolean;
+  manual_until?: number | null;
 };
 
 export async function getSniperReveal(token: SniperAuth): Promise<DolzRevealStatus> {
   return (await callSniper<{ reveal: DolzRevealStatus }>("/reveal", token, undefined, 20_000)).reveal;
+}
+
+/** Start the 1 s reveal check by hand for `minutes` (0 stops it). */
+export async function setSniperRevealManual(token: SniperAuth, minutes: number): Promise<{ manual_until: number }> {
+  return callSniper<{ manual_until: number }>("/reveal", token, { method: "POST", body: JSON.stringify({ minutes }) }, 20_000);
 }
 
 export type DolzSniperCardMeta = { name: string | null; card: string | null; tier: string | null; serial: string | number | null; rarity: string | null };
