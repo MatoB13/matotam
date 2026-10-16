@@ -189,6 +189,12 @@ export default function SellPanel({ token }: { token: string }) {
         schváli market (setApprovalForAll). Zmena ceny prepíše aj trvanie ponuky. Trh = medián predajov rovnakej karty a tieru za USDC.
       </p>
       {error ? <p className={styles.badText}>{error}</p> : null}
+      {inventory?.offersStale ? (
+        <p className={styles.badText}>
+          Ponuky kupcov sa teraz nepodarilo načítať (preťažený uzol), zobrazené sú{" "}
+          {inventory.offersStale.since ? `z ${new Date(inventory.offersStale.since * 1000).toLocaleTimeString("sk-SK")}` : "žiadne – ešte neboli načítané"}. Skús Obnoviť o chvíľu.
+        </p>
+      ) : null}
 
       <div className={styles.sellBulk}>
         <span className={styles.mutedText}>Vybrané: {selected.size}</span>

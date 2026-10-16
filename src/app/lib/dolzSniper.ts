@@ -210,6 +210,8 @@ export type DolzSellInventory = {
   /** Platform + collection fee the seller pays, in basis points. */
   sellerFeeBps?: number | null;
   cards: DolzSellCard[];
+  /** Set when buyer offers could not be read now; the offers shown are from the last successful read. */
+  offersStale?: { since: number | null; error: string } | null;
 };
 
 export type DolzSellResult = { token_id: string; ok: boolean; tx?: string; action?: string; error?: string };
