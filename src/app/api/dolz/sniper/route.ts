@@ -12,6 +12,7 @@ import {
   getSniperDrop,
   saveSniperDrop,
   getSniperArbitrage,
+  getSniperConfigHistory,
   getSniperReveal,
   setSniperRevealManual,
   saveSniperConfig,
@@ -35,6 +36,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, auction: await getSniperAuction(token) }, { headers });
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Aukciu sa nepodarilo načítať." }, { status: 502, headers });
+    }
+  }
+  if (request.nextUrl.searchParams.get("view") === "config_history") {
+    try {
+      return NextResponse.json({ ok: true, history: await getSniperConfigHistory(token) }, { headers });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Históriu sa nepodarilo načítať." }, { status: 502, headers });
     }
   }
   if (request.nextUrl.searchParams.get("view") === "arbitrage") {

@@ -5,6 +5,7 @@ import { actionHeaders } from "./actionPassword";
 import styles from "./dolz.module.css";
 import ArbitragePanel from "./ArbitragePanel";
 import AuctionPanel from "./AuctionPanel";
+import ConfigHistory from "./ConfigHistory";
 import DropPanel from "./DropPanel";
 import RevealPanel from "./RevealPanel";
 import OfferPanel from "./OfferPanel";
@@ -511,6 +512,7 @@ export default function SniperTab({ token }: { token: string }) {
       ) : availability === "loading" && !error ? (
         <section className={styles.loadingBox}>Načítavam nastavenia snipera…</section>
       ) : null}
+      {view === "settings" ? <ConfigHistory token={token} /> : null}
 
       {view === "sell" ? <SellPanel token={token} /> : null}
       {view === "arbitrage" ? <ArbitragePanel token={token} /> : null}

@@ -449,6 +449,21 @@ export async function getSniperArbitrage(token: SniperAuth, rarity: string, top:
   return (await callSniper<{ arbitrage: DolzArbitrage }>(`/arbitrage${query}`, token, undefined, 90_000)).arbitrage;
 }
 
+/** One saved sniper configuration and what changed against the one before (newest first). */
+export type DolzConfigChange = {
+  at: string;
+  source: string;
+  rules: number;
+  added: string[];
+  removed: string[];
+  settings: Record<string, unknown>;
+  first?: boolean;
+};
+
+export async function getSniperConfigHistory(token: SniperAuth): Promise<DolzConfigChange[]> {
+  return (await callSniper<{ history: DolzConfigChange[] }>("/config/history?limit=200", token, undefined, 20_000)).history;
+}
+
 /** Reveal overview: unrevealed card numbers the sniper watches (known cards each) and the latest reveals. */
 export type DolzRevealStatus = {
   watching: Record<string, number>;
